@@ -1,0 +1,10 @@
+{
+  "fixture": "jfk.wav",
+  "repository": "https://github.com/ggml-org/whisper.cpp",
+  "commit": "6e4ab854f67f743900934a703d5603419384c961",
+  "source": "samples/jfk.wav",
+  "sha256": "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e",
+  "bytes": 352078,
+  "scope": "public test fixture; androidTest only; not release APK",
+  "expected_phrase": "ask not what your country can do for you"
+}

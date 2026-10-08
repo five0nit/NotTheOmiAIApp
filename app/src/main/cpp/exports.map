@@ -1,0 +1,8 @@
+{
+  global:
+    Java_app_nottheomi_ai_WhisperNative_openFile;
+    Java_app_nottheomi_ai_WhisperNative_transcribe;
+    Java_app_nottheomi_ai_WhisperNative_cancel;
+    Java_app_nottheomi_ai_WhisperNative_close;
+  local: *;
+};

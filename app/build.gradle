@@ -1,0 +1,34 @@
+plugins { id 'com.android.application' }
+android {
+ namespace 'app.nottheomi.ai'
+ compileSdk 34
+ useLibrary 'android.test.runner'
+ useLibrary 'android.test.base'
+ defaultConfig {
+  applicationId 'app.nottheomi.ai'
+  minSdk 26
+  targetSdk 34
+  versionCode 11
+  versionName '0.4.4'
+  testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+  // ABI splits alone do not filter transitive AAR libraries from universal APKs.
+  ndk { abiFilters 'arm64-v8a', 'x86_64' }
+ }
+ buildTypes { release { minifyEnabled false } }
+ splits { abi { enable true; reset(); include 'arm64-v8a', 'x86_64'; universalApk true } }
+ androidResources {
+  noCompress += ['bin']
+  // Android assets merging does not honor sourceSets assets.exclude here.
+  // Both offline models are intentional: Vosk preview, Whisper saved refinement.
+  ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~'
+ }
+ compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+ packaging { resources { excludes += ['META-INF/AL2.0','META-INF/LGPL2.1'] } }
+ lint { abortOnError true }
+}
+// Offline Whisper JNI libraries and pinned weights are prepared by scripts/prepare_whisper.py
+// and scripts/build_whisper.py. No networking or remote inference runtime.
+dependencies {
+ implementation 'com.alphacephei:vosk-android:0.3.75@aar'
+ implementation 'net.java.dev.jna:jna:5.18.1@aar'
+}

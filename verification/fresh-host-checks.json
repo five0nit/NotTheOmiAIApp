@@ -1,0 +1,50 @@
+{
+  "scope": "fresh host checks against public source snapshot; no physical device or Android instrumentation",
+  "results": [
+    {
+      "script": "tests/omi/run_ble_tests.py",
+      "exit_code": 0,
+      "log": "verification/public-host/tests_omi_run_ble_tests.py.log",
+      "log_sha256": "db91f968a3d63840f59a31a73d867d970b8b9cd10fe44b89bce0a12a38673650"
+    },
+    {
+      "script": "tests/omi-capture/run_host_checks.py",
+      "exit_code": 0,
+      "log": "verification/public-host/tests_omi-capture_run_host_checks.py.log",
+      "log_sha256": "c7eda12d1e2d16b3b46ebe6ffbe3f401f0972848207910545462b752065d1999"
+    },
+    {
+      "script": "tests/omi-composition/run_host_checks.py",
+      "exit_code": 0,
+      "log": "verification/public-host/tests_omi-composition_run_host_checks.py.log",
+      "log_sha256": "40988957a8663e955f0bf0f1dc0e0983a9f761408478d402a145d3179f3ef229"
+    },
+    {
+      "script": "tests/capture/run_host_checks.py",
+      "exit_code": 0,
+      "log": "verification/public-host/tests_capture_run_host_checks.py.log",
+      "log_sha256": "15065bfe342e41773002101f426e69b9507b056a255993395fc57da509a40058"
+    },
+    {
+      "script": "tests/hybrid/run_host_checks.py",
+      "exit_code": 0,
+      "log": "verification/public-host/tests_hybrid_run_host_checks.py.log",
+      "log_sha256": "2e6b0004854c0386c90602d118342f8f9e78212458333eae9453a42fbf8c1cc2"
+    },
+    {
+      "script": "tests/hybrid/run_job_checks.py",
+      "exit_code": 0,
+      "log": "verification/public-host/tests_hybrid_run_job_checks.py.log",
+      "log_sha256": "1c35c5497066de04c3e3c722eb2ce3f9fda8885536a0571b2a6b5193a6ace2c6"
+    },
+    {
+      "script": "tests/whisper-java/run_host_checks.py",
+      "exit_code": 0,
+      "log": "verification/public-host/tests_whisper-java_run_host_checks.py.log",
+      "log_sha256": "859f7f3df734db5315434d5e9dbf1019ba8eb189876cc8b4c6ee313e7325adda"
+    }
+  ],
+  "windows_probe_argument_validation": "pass; missing Windows directory rejected before SDK/device access",
+  "python_syntax": "pass",
+  "setup_note": "Initial capture runner needed SDK and prepared model inputs. Configured ignored local.properties and supplied existing hash-verified pinned model assets via --model and --preview-model, then reran. Model payloads are not included in Git."
+}

@@ -1,0 +1,50 @@
+{
+  "model": {
+    "name": "Whisper small.en Q5_1",
+    "filename": "ggml-small.en-q5_1.bin",
+    "revision": "5359861c739e955e79d9a303bcbc70fb988958b1",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en-q5_1.bin",
+    "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
+    "bytes": 190098681,
+    "license": "MIT"
+  },
+  "preview_model": {
+    "name": "vosk-model-small-en-us-0.15",
+    "filename": "model.zip",
+    "url": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+    "sha256": "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498",
+    "bytes": 41205931,
+    "license": "Apache-2.0"
+  },
+  "runtime": [
+    {
+      "coordinate": "com.alphacephei:vosk-android:0.3.75@aar",
+      "sha256": "ab2f8b91ac8051561aa325546b35fed9a68b36b8121bac5c6fb927525c4adfad",
+      "license": "Apache-2.0"
+    },
+    {
+      "coordinate": "net.java.dev.jna:jna:5.18.1@aar",
+      "sha256": "7f053e3ec99e14dd71259c82c1c8a02738d64a13c31226b2acc170f3060951e0",
+      "license": "Apache-2.0 option"
+    },
+    {
+      "repository": "https://github.com/ggml-org/whisper.cpp",
+      "commit": "6e4ab854f67f743900934a703d5603419384c961",
+      "source_archive_sha256": "55b585aec5e1bc03e2a5cea61da97c6406fa833996cf7daeed704972273cc039",
+      "backend": "CPU-only; arm64-v8a and x86_64; custom JNI",
+      "license": "MIT"
+    }
+  ],
+  "concentus": {
+    "repository": "https://github.com/lostromb/concentus",
+    "commit": "3885c4e46513ef0fc81fca100189e54f1714c6ca",
+    "source": "124 vendored Java sources copied from original Omi Private; fingerprints in verification/omi-transport-source-manifest.json",
+    "license": "third_party/concentus-license.txt"
+  },
+  "omi_protocol": {
+    "repository": "https://github.com/BasedHardware/omi",
+    "commit": "d1fdcb4cc4fbd021eac799630e476f144e6bc18a",
+    "license": "third_party/omi-license.txt",
+    "evidence": "verification/OMI-PROTOCOL.md"
+  }
+}

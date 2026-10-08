@@ -1,0 +1,9 @@
+OmiCompositionHostTest PASS startup_retry: 28 assertions; segments=[segment-1]; bytes=640
+OmiCompositionHostTest PASS sequence_loss: 33 assertions; segments=[segment-1, segment-2]; bytes=1280
+OmiCompositionHostTest PASS malformed_opus: 35 assertions; segments=[segment-1, segment-2]; bytes=1920
+OmiCompositionHostTest PASS link_recovery: 44 assertions; segments=[segment-1, segment-2]; bytes=1280
+OmiCompositionHostTest PASS stop_backoff: 28 assertions; segments=[segment-1]; bytes=640
+OmiCompositionHostTest PASS recovery_before_deadline: 39 assertions; segments=[segment-1, segment-2]; bytes=1280
+OmiCompositionHostTest PASS recovery_at_deadline: 25 assertions; segments=[segment-1]; bytes=640
+OmiCompositionHostTest PASS startup_at_deadline: 16 assertions; segments=[segment-1]; bytes=0
+Omi composition host PASS: 8 scenarios; real service + BLE + Concentus; fake Android/GATT/storage/preview.

@@ -1,0 +1,22 @@
+ModelInstallerHostTest PASS: 21 assertions, real pinned Whisper model
+PreviewModelInstallerHostTest PASS: 26 assertions, real pinned model archive
+CaptureServiceHostTest PASS permission: 22 assertions
+CaptureServiceHostTest PASS omi_busy: 20 assertions
+CaptureServiceHostTest PASS null_intent: 20 assertions
+CaptureServiceHostTest PASS prepare_cancel: 29 assertions
+CaptureServiceHostTest PASS native_warm_cancel: 31 assertions
+CaptureServiceHostTest PASS mic_setup_cancel: 30 assertions
+CaptureServiceHostTest PASS archive_and_final: 37 assertions
+CaptureServiceHostTest PASS active_until_saved: 41 assertions
+CaptureServiceHostTest PASS native_failure: 36 assertions
+CaptureServiceHostTest PASS slow_asr: 341 assertions
+CaptureServiceHostTest PASS storage_failure: 30 assertions
+CaptureServiceHostTest PASS read_failure: 30 assertions
+CaptureServiceHostTest PASS text_failure: 30 assertions
+CaptureServiceHostTest PASS streaming_partial: 36 assertions
+CaptureServiceHostTest PASS partial_cancel: 32 assertions
+CaptureServiceHostTest PASS start_failure: 17 assertions
+CaptureServiceHostTest PASS stop_accept_timeout: 41 assertions
+CaptureServiceHostTest PASS stop_final_timeout: 43 assertions
+CaptureServiceHostTest PASS stop_storage_blocked: 31 assertions
+CaptureService host PASS: 19 scenarios (Android/native/storage doubles).

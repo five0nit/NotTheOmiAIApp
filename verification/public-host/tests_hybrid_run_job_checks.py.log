@@ -1,0 +1,7 @@
+RefinementJobHostTest PASS stop: 14 assertions; production service with controlled doubles
+RefinementJobHostTest PASS different-job: 11 assertions; production service with controlled doubles
+RefinementJobHostTest PASS destroy: 11 assertions; production service with controlled doubles
+RefinementJobHostTest PASS capture-preempt: 12 assertions; production service with controlled doubles
+RefinementJobHostTest PASS capture-active: 4 assertions; production service with controlled doubles
+RefinementJobHostTest PASS success: 10 assertions; production service with controlled doubles
+JobService lifecycle PASS: 6 scenarios; Android/native/store doubles, not device lifecycle acceptance.

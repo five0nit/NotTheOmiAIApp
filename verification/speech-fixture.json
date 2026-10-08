@@ -1,0 +1,5 @@
+{
+  "url": "https://raw.githubusercontent.com/alphacep/vosk-api/05adbfcc0df27a1535913c6accd4b7fc60ffd59d/python/example/test.wav",
+  "sha256": "dcfea5712c43a43ba7ae8083afb39d36993e5a69c46e88b68aaa72b65cb615bb",
+  "source": "Vosk upstream test sample (Apache-2.0); synthetic test evidence, not user audio"
+}

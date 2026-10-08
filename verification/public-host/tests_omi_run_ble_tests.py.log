@@ -1,0 +1,184 @@
+  strict stock 8-byte LE32 event plus zero reserved word
+  serial GATT, target CCC identity, fresh notifications, both callback APIs
+  optional failure preserves audio: no-service
+  optional failure preserves audio: no-characteristic
+  optional failure preserves audio: no-notify-property
+  optional failure preserves audio: no-ccc
+  optional failure preserves audio: notify-false
+  optional failure preserves audio: notify-throws
+  optional failure preserves audio: write-false
+  optional failure preserves audio: write-throws
+  optional failure preserves audio: ack-fails
+  independent optional timeout with continuous real audio and late ack
+  audio watchdog persists while button pending, after success and after fallback
+  button success does not reset most recent audio deadline
+  old connection callbacks, reset readiness, queued events and stop cancellation
+  required audio CCC failure remains fatal/retryable, optional write never starts
+  readiness requires decoded PCM, not CCCs or buffered packets; resets on reconnect
+  human-readable connect timeout retains existing retry
+PASS: 365 assertions across 18 focused button/BLE host scenarios
+HOST ONLY: Android/BLE fakes + actual production OmiBle, ButtonEvent and Concentus; no wearable/runtime acceptance claimed
+  initial/disconnected/connection-setup rejection never opens GATT or creates a worker
+  unsupported firmware: service
+  unsupported firmware: characteristic
+  unsupported firmware: read-only
+  unsupported firmware: write-only
+  unsupported firmware: write-no-response
+  unsupported firmware: wrong-identity
+  single-byte write/readback, busy preservation, audio/button delivery, callback legacy=false
+  single-byte write/readback, busy preservation, audio/button delivery, callback legacy=true
+  optional LED failure without audio disruption: read-reject
+  optional LED failure without audio disruption: read-security
+  optional LED failure without audio disruption: read-runtime
+  optional LED failure without audio disruption: read-status
+  optional LED failure without audio disruption: read-null
+  optional LED failure without audio disruption: read-empty
+  optional LED failure without audio disruption: read-long
+  optional LED failure without audio disruption: read-range
+  optional LED failure without audio disruption: prepare-reject
+  optional LED failure without audio disruption: write-reject
+  optional LED failure without audio disruption: write-security
+  optional LED failure without audio disruption: write-runtime
+  optional LED failure without audio disruption: write-status
+  optional LED failure without audio disruption: back-reject
+  optional LED failure without audio disruption: back-security
+  optional LED failure without audio disruption: back-runtime
+  optional LED failure without audio disruption: back-status
+  optional LED failure without audio disruption: back-invalid
+  timeout quarantines late callbacks and request B at LED stage 8
+  timeout quarantines late callbacks and request B at LED stage 9
+  timeout quarantines late callbacks and request B at LED stage 10
+  optional button timeout cannot leave LED using an occupied ATT lane
+  queued and stale LED requests/callbacks suppressed: stop
+  queued and stale LED requests/callbacks suppressed: selection
+  queued and stale LED requests/callbacks suppressed: reconnect
+  in-flight write Stop/new selection invalidates queued acknowledgement, never reads back
+  busy-at-entry command isn't delayed until a queued read completes
+  connection identity changes after successful read require a fresh read
+  Stop inside LED busy listener prevents native submission
+  LED results and requests do not extend startup audio watchdog or reset retry budget
+  established 15-second audio watchdog survives pending LED read
+PASS: 855 assertions across 40 LED/BLE host scenarios
+HOST ONLY: actual OmiBle + Concentus; shared single-flight Android/GATT/Handler fakes; no hardware/persistence acceptance
+  unknown constructor/idle stop: telemetry never starts a worker, scan or connection
+  battery starts only after required audio and optional button setup, with 1s idle grace
+  battery follows completed optional button fallback: absent
+  battery follows completed optional button fallback: write-reject
+  battery follows completed optional button fallback: status-failure
+  BAS unavailable without audio effects: no-service
+  BAS unavailable without audio effects: no-characteristic
+  BAS unavailable without audio effects: notify-only
+  BAS unavailable without audio effects: write-only
+  BAS unavailable without audio effects: no-properties
+  BAS unavailable without audio effects: wrong-characteristic
+  BAS unavailable without audio effects: wrong-service
+  strict unsigned one-byte percentage 0, legacy=false
+  strict unsigned one-byte percentage 1, legacy=false
+  strict unsigned one-byte percentage 50, legacy=false
+  strict unsigned one-byte percentage 99, legacy=false
+  strict unsigned one-byte percentage 100, legacy=false
+  strict unsigned one-byte percentage 101, legacy=false
+  strict unsigned one-byte percentage 127, legacy=false
+  strict unsigned one-byte percentage 128, legacy=false
+  strict unsigned one-byte percentage 255, legacy=false
+  strict unsigned one-byte percentage 0, legacy=true
+  strict unsigned one-byte percentage 1, legacy=true
+  strict unsigned one-byte percentage 50, legacy=true
+  strict unsigned one-byte percentage 99, legacy=true
+  strict unsigned one-byte percentage 100, legacy=true
+  strict unsigned one-byte percentage 101, legacy=true
+  strict unsigned one-byte percentage 127, legacy=true
+  strict unsigned one-byte percentage 128, legacy=true
+  strict unsigned one-byte percentage 255, legacy=true
+  known read failure clears battery only, recovers on next interval: null
+  known read failure clears battery only, recovers on next interval: empty
+  known read failure clears battery only, recovers on next interval: long
+  known read failure clears battery only, recovers on next interval: status
+  known read failure clears battery only, recovers on next interval: read-reject
+  known read failure clears battery only, recovers on next interval: changed-target
+  known read failure clears battery only, recovers on next interval: lost-read-property
+  busy LED stage 8 skips battery without altering its deadline/completion
+  busy LED stage 9 skips battery without altering its deadline/completion
+  busy LED stage 10 skips battery without altering its deadline/completion
+  uncertain shared ATT lane stays quarantined until natural reconnect: battery-timeout
+  uncertain shared ATT lane stays quarantined until natural reconnect: battery-runtime
+  uncertain shared ATT lane stays quarantined until natural reconnect: battery-after-submit
+  uncertain shared ATT lane stays quarantined until natural reconnect: battery-security
+  uncertain shared ATT lane stays quarantined until natural reconnect: led-read-timeout
+  uncertain shared ATT lane stays quarantined until natural reconnect: led-write-timeout
+  uncertain shared ATT lane stays quarantined until natural reconnect: led-back-timeout
+  uncertain shared ATT lane stays quarantined until natural reconnect: led-runtime
+  uncertain shared ATT lane stays quarantined until natural reconnect: button-timeout
+  uncertain shared ATT lane stays quarantined until natural reconnect: button-runtime
+  stale callbacks and scheduled poll cannot cross stop
+  stale callbacks and scheduled poll cannot cross selection
+  stale callbacks and scheduled poll cannot cross reconnect
+  Stop invalidates already-queued in-flight battery result and pending poll before dispatch
+  unknown-state listener Stop invalidates new selection before native submission, scan=false
+  unknown-state listener Stop invalidates new selection before native submission, scan=true
+  reentrant listener Stop is checked before follow-up native work: button-enabling
+  reentrant listener Stop is checked before follow-up native work: button-ready
+  reentrant listener Stop is checked before follow-up native work: button-unavailable
+  reentrant listener Stop is checked before follow-up native work: battery-result
+  reentrant listener Stop is checked before follow-up native work: unknown
+  battery success/failure do not reset startup watchdog or retry debt
+  pending battery cannot postpone established 15s audio watchdog
+PASS: 1194 assertions across 63 battery/BLE host scenarios
+HOST ONLY: actual OmiBle + Concentus; shared single-flight Android/GATT/Handler fakes; no wearable battery accuracy/runtime acceptance
+  incomplete successful discovery rechecked without declaring incompatibility: service
+  incomplete successful discovery rechecked without declaring incompatibility: codec
+  incomplete successful discovery rechecked without declaring incompatibility: audio
+  repeated missing service preserves recovery backoff, no false incompatible stop
+  stop cancels rediscovery and stale callback cannot revive it
+  new selection supersedes old delayed rediscovery
+  lost rediscovery callback has its own bounded operation deadline
+  partial audio attributes get same bounded rediscovery: audio-ccc
+  partial audio attributes get same bounded rediscovery: audio-properties
+  observed link status 8 followed by nine 147 timeouts preserves codes and fast retry budget
+  first decoded audio can arrive after 15s but established audio retains 15s watchdog
+  first buffered frame near startup expiry cannot buy another startup window
+  first-audio startup deadline cannot survive Stop
+  ten fast recovery retries then battery-bounded persistent retries
+  GATT readiness, button events and first buffered frame do not reset backoff
+  operation timeout reconnects at stage 1
+  operation timeout reconnects at stage 2
+  operation timeout reconnects at stage 3
+  operation timeout reconnects at stage 4
+  operation timeout reconnects at stage 5
+  stalled audio reconnects; malformed and duplicate traffic cannot hide stall
+  Bluetooth disabled at selection survives beyond five retries until enabled
+  stop, new selection and already queued callbacks cancel stale work
+  permission and confirmed unsupported codec terminal, incomplete discovery retryable
+  Stop during in-progress open callback: status
+  Stop during in-progress open callback: gap
+PASS: 761 assertions across 26 reconnect host scenarios
+HOST ONLY: actual OmiBle + Concentus, shared fake Android/GATT/Handler; no wearable acceptance claimed
+  pinned Omi codec 20 actual PCM through modern callbacks
+  pinned Omi codec 20 actual PCM through legacy callbacks
+  pinned Omi codec 21 actual PCM through modern callbacks
+  pinned Omi codec 21 actual PCM through legacy callbacks
+  unverified codec fails closed: 0
+  unverified codec fails closed: 1
+  unverified codec fails closed: 19
+  unverified codec fails closed: 22
+  unverified codec fails closed: 255
+  codec requires exact read target; malformed multi-byte codec rejected
+  uncertain native MTU completion never overlaps discovery
+  rejected MTU may continue, thrown MTU quarantines connection
+  real Opus split fragments decode sample-identically, loss resets decoder
+  parser rejects orphan, malformed, overflow and fragment discontinuity
+  safe scan failure: adapter-permission
+  safe scan failure: start-permission
+  safe scan failure: stop-permission
+  safe scan failure: no-scanner
+  safe scan failure: disabled
+  scan epochs suppress stale callbacks; explicit selection only
+  OmiGlass two-byte OTA status never permits LED writes, legacy=false
+  OmiGlass two-byte OTA status never permits LED writes, legacy=true
+  Stop from setup status prevents follow-up native submission: mtu
+  Stop from setup status prevents follow-up native submission: codec
+  Stop from setup status prevents follow-up native submission: audio
+  null callbacks do not crash transport or manufacture PCM
+PASS: 221 assertions across 26 transport hardening host scenarios
+HOST ONLY: real decoder/transport with deterministic Android/GATT/scan fakes; no Android suite or wearable acceptance
+HOST-ONLY PASS: ButtonBleTest, LedBleTest, BatteryBleTest, ReconnectBleTest, TransportBleTest
