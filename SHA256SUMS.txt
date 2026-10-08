@@ -1,0 +1,4 @@
+d950c0adf049d84a66aa26fbaf49296d3858c354e2e9750458c65b2196c25fd1  NotTheOmiAIApp-0.3.1-arm64-v8a.apk
+a8ddc945e4c83c426b5c6e0f0860f46758e365be9df9d465dee7f8138eb2e95e  NotTheOmiAIApp-0.3.1-armeabi-v7a.apk
+0880e0e7f78b7a977844281fec23433d0537dbaf2fc602e7239b9c3b91bb7547  NotTheOmiAIApp-0.3.1-universal.apk
+5bb5dd2fc85ba73fa8308929b1a973bd8ff440061c982f2c1eadea5b16026377  NotTheOmiAIApp-0.3.1-x86_64.apk

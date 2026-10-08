@@ -1,0 +1,48 @@
+{
+  "app": "NotTheOmiAIApp",
+  "package": "app.nottheomi.ai",
+  "version": "0.3.1",
+  "version_code": 4,
+  "minimum_android_api": 26,
+  "distribution": "public-apk-only",
+  "application_source": "private; not included in this repository or its source archives",
+  "private_source_commit": "542bdeb07e4235894fa349e2de8eebf5c4e529d6",
+  "release_tag": "v0.3.1",
+  "release_channel": "preview",
+  "signing_certificate_sha256": "b1ae66aff1dc32173dd2b99ec17710f949ff03d1b33ebcc1d49de87c7fba1e90",
+  "artifacts": [
+    {
+      "file": "NotTheOmiAIApp-0.3.1-arm64-v8a.apk",
+      "bytes": 51410177,
+      "sha256": "d950c0adf049d84a66aa26fbaf49296d3858c354e2e9750458c65b2196c25fd1"
+    },
+    {
+      "file": "NotTheOmiAIApp-0.3.1-armeabi-v7a.apk",
+      "bytes": 50304261,
+      "sha256": "a8ddc945e4c83c426b5c6e0f0860f46758e365be9df9d465dee7f8138eb2e95e"
+    },
+    {
+      "file": "NotTheOmiAIApp-0.3.1-universal.apk",
+      "bytes": 81962889,
+      "sha256": "0880e0e7f78b7a977844281fec23433d0537dbaf2fc602e7239b9c3b91bb7547"
+    },
+    {
+      "file": "NotTheOmiAIApp-0.3.1-x86_64.apk",
+      "bytes": 51651835,
+      "sha256": "5bb5dd2fc85ba73fa8308929b1a973bd8ff440061c982f2c1eadea5b16026377"
+    }
+  ],
+  "verification": {
+    "retained_android13_emulator_tests": 63,
+    "retained_capture_host_scenarios": 23,
+    "fresh_publication_checks": [
+      "artifact_sha256",
+      "apk_signature",
+      "package_and_version",
+      "non_debuggable",
+      "no_internet_permission",
+      "bounded_sensitive_pattern_scan"
+    ],
+    "physical_omi_endurance": "not yet verified"
+  }
+}
