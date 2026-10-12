@@ -16,6 +16,7 @@ SOURCES = {
     'android/annotation/SuppressLint.java': '''
         package android.annotation; public @interface SuppressLint { String[] value(); }
     ''',
+    'android/os/SystemClock.java': 'package android.os; public class SystemClock { public static long elapsedRealtime(){return Handler.elapsed();}}',
     'android/os/Looper.java': '''
         package android.os;
         public final class Looper {
@@ -28,9 +29,10 @@ SOURCES = {
     'android/os/HandlerThread.java': '''
         package android.os;
         public final class HandlerThread {
+            public static int quits;
             public HandlerThread(String name) {} public void start() {}
             public Looper getLooper() { return Looper.getMainLooper(); }
-            public boolean quitSafely() { return true; }
+            public boolean quitSafely() { quits++; return true; }
         }
     ''',
     'android/os/Handler.java': '''
@@ -50,6 +52,7 @@ SOURCES = {
                 if (token != null) throw new UnsupportedOperationException("fixture supports untagged callbacks only");
                 queue.removeIf(e -> e.owner == this);
             }
+            public static long elapsed() { return now; }
             public static void reset() { queue.clear(); now = sequence = 0; }
             public static void drain() { advance(0); }
             public static void advance(long ms) {
@@ -87,6 +90,7 @@ SOURCES = {
         package android.bluetooth; import android.bluetooth.le.*;
         public class BluetoothAdapter {
             public BluetoothGatt next; public int connections;
+            public Runnable beforeConnect;
             public boolean enabled = true; public RuntimeException failure;
             public boolean isEnabled() { if (failure != null) throw failure; return enabled; }
             public static boolean checkBluetoothAddress(String a) { return a.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}"); }
@@ -103,6 +107,7 @@ SOURCES = {
             public BluetoothDevice(BluetoothAdapter a) { adapter = a; }
             public String getAddress() { return "AA:BB:CC:DD:EE:FF"; }
             public BluetoothGatt connectGatt(Context c, boolean auto, BluetoothGattCallback callback, int transport) {
+                if (adapter.beforeConnect != null) adapter.beforeConnect.run();
                 adapter.connections++; adapter.next.callback = callback; return adapter.next;
             }
         }
@@ -186,6 +191,8 @@ SOURCES = {
                 return begin("command:" + c.getUuid(), c);
             }
             public Object pending; public boolean disconnected, closed;
+            public int disconnectAttempts, closeAttempts;
+            public RuntimeException disconnectFailure, closeFailure;
             private boolean begin(String label, Object target) {
                 if (pending != null) throw new AssertionError("overlapping GATT operations: " + calls + " -> " + label);
                 calls.add(label); pending = target; return true;
@@ -215,8 +222,14 @@ SOURCES = {
                 if (rejectWrite.contains(uuid)) return false;
                 return begin("write:" + uuid, d);
             }
-            public void disconnect() { disconnected = true; }
-            public void close() { closed = true; pending = null; }
+            public void disconnect() {
+                disconnectAttempts++; if (disconnectFailure != null) throw disconnectFailure;
+                disconnected = true;
+            }
+            public void close() {
+                closeAttempts++; if (closeFailure != null) throw closeFailure;
+                closed = true; pending = null;
+            }
         }
     ''',
     'android/bluetooth/le/BluetoothLeScanner.java': '''

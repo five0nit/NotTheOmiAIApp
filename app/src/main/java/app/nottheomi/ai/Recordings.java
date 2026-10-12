@@ -23,6 +23,7 @@ import java.security.MessageDigest;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,6 +31,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -149,6 +152,29 @@ public final class Recordings {
             bytes = metadata.bytes;
             durationMs = bytes * 1000L / (SAMPLE_RATE * 2L);
             truncated = previewTruncated;
+        }
+    }
+
+    /** Authenticated metadata only; no transcript, audio, or plaintext SQL index. */
+    public static final class LibraryEntry {
+        public final String id, title, status;
+        public final long createdAt, durationMs;
+        private LibraryEntry(Metadata metadata) {
+            id = metadata.id;
+            title = metadata.title;
+            status = metadata.status;
+            createdAt = metadata.createdAt;
+            durationMs = metadata.bytes * 1000L / (SAMPLE_RATE * 2L);
+        }
+    }
+
+    /** Immutable saved-session catalog, newest authenticated timestamp first, then ID. */
+    public static final class LibraryCatalog {
+        public final List<LibraryEntry> entries;
+        public final int unavailableCount;
+        private LibraryCatalog(List<LibraryEntry> entries, int unavailableCount) {
+            this.entries = Collections.unmodifiableList(new ArrayList<>(entries));
+            this.unavailableCount = unavailableCount;
         }
     }
 
@@ -454,6 +480,57 @@ public final class Recordings {
         metadata.refinementQueued = true;
     }
 
+    /** Calendar/list inventory without transcript, refinement, audio, shape or quota scans.
+     * Authenticate each manifest afresh under a short per-entry lock, excluding active
+     * capture. Damaged manifests are counted but never rewritten/deleted; database-wide
+     * failures still propagate. This is a per-row snapshot, not a transaction spanning
+     * the archive. Call off the UI thread with a fast, nonblocking cancellation supplier.
+     */
+    public LibraryCatalog libraryCatalog(BooleanSupplier cancelled) throws Exception {
+        checkLibraryCancelled(cancelled);
+        List<String> ids = new ArrayList<>();
+        synchronized (lock) {
+            try (Cursor cursor = db.rawQuery("SELECT id FROM sessions", null)) {
+                while (cursor.moveToNext()) {
+                    checkLibraryCancelled(cancelled);
+                    ids.add(cursor.getString(0));
+                }
+            }
+        }
+        List<LibraryEntry> result = new ArrayList<>();
+        int unavailable = 0;
+        for (String id : ids) {
+            checkLibraryCancelled(cancelled);
+            synchronized (lock) {
+                // Explicit deletion between the ID snapshot and this row is not corruption.
+                if (!exists(id)) continue;
+                try {
+                    Metadata metadata = loadMetadata(id, false);
+                    if (!ACTIVE.equals(metadata.status)) result.add(new LibraryEntry(metadata));
+                } catch (CorruptRecordingException damaged) {
+                    unavailable++;
+                }
+            }
+        }
+        checkLibraryCancelled(cancelled);
+        result.sort(Comparator.comparingLong((LibraryEntry item) -> item.createdAt)
+                .reversed().thenComparing(item -> item.id));
+        checkLibraryCancelled(cancelled);
+        return new LibraryCatalog(result, unavailable);
+    }
+
+    private static void checkLibraryCancelled(BooleanSupplier cancelled) {
+        if (cancelled.getAsBoolean()) throw new CancellationException();
+    }
+
+    /** Authenticate only a bounded preview for a selected saved row; null if absent/active.
+     * Reuses recent()'s last-four-chunks / 600-character bounds and reader lease. Omitted
+     * payloads are not validated here; find()/export retain their full integrity checks.
+     */
+    public Session libraryPreview(String id) throws Exception {
+        return readSession(id, true);
+    }
+
     public List<Session> list(String query) throws Exception {
         List<String> ids = new ArrayList<>();
         synchronized (lock) {
@@ -507,6 +584,7 @@ public final class Recordings {
     }
 
     private Session readSession(String id, boolean brief) throws Exception {
+        checkReadCancelled();
         Metadata metadata;
         RefinementMetadata refinement = null;
         boolean damaged = false;
@@ -725,9 +803,14 @@ public final class Recordings {
     }
 
     private String readText(String id, long sequence, boolean refined) throws Exception {
+        checkReadCancelled();
         byte[] plain = refined ? readRefinementChunk(id, sequence) : readChunk(id, "text", sequence);
-        try { return new String(plain, StandardCharsets.UTF_8); }
+        try { checkReadCancelled(); return new String(plain, StandardCharsets.UTF_8); }
         finally { Arrays.fill(plain, (byte) 0); }
+    }
+
+    private static void checkReadCancelled() {
+        if (Thread.currentThread().isInterrupted()) throw new CancellationException();
     }
 
     private static String annotations(String live) {

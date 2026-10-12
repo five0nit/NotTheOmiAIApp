@@ -18,6 +18,13 @@ STUBS = ast.literal_eval(next(node.value for node in tree.body
 STUBS = {k: v for k, v in STUBS.items() if not k.startswith('android/media/')}
 STUBS.pop('app/nottheomi/ai/OmiCaptureService.java')  # Compile the real Omi service below.
 STUBS.update({
+'app/nottheomi/ai/ButtonActions.java': '''package app.nottheomi.ai; public final class ButtonActions {
+ public static int launches, media;
+ public static String action(android.content.Context c,int event){return c.getSharedPreferences("omi",0).getString(event==1?"single_action":"double_action",event==1?"bookmark":"stop");}
+ public static boolean isMediaAction(String action){return action.equals("media_pause")||action.equals("media_play_pause");}
+ public static String dispatchMedia(android.content.Context c,int event){media++;return "music requested";}
+ public static String launchShortcut(android.content.Context c,int event){launches++;return "shortcut requested";}
+}''',
 'android/os/SystemClock.java': 'package android.os; public class SystemClock { public static volatile long offset, fixed=-1; public static long elapsedRealtime(){return fixed>=0?fixed:System.nanoTime()/1000000+offset;}}',
 'android/os/PowerManager.java': '''package android.os; public class PowerManager {
  public static final int PARTIAL_WAKE_LOCK=1; public static volatile int held,acquires,expirations;
@@ -120,7 +127,7 @@ SCENARIOS = ['null_intent', 'permission', 'legacy_permission', 'no_microphone_pe
  'archive_bookmark', 'button_mapping', 'gap', 'overflow', 'slow_asr', 'native_failure',
  'storage_failure', 'text_failure', 'late_text_failure', 'active_until_saved', 'initial_failure',
  'small_packets_10ms', 'small_packets_20ms', 'initial_retry', 'stop_recovery', 'terminal_after_audio',
- 'recovery_timeout', 'startup_timeout', 'repeated_gap', 'gap_speech_failure',
+ 'recovery_long_wait', 'recovery_long_stop', 'recovery_permission_loss', 'startup_timeout', 'repeated_gap', 'gap_speech_failure',
  'segment_drain', 'segment_no_empty', 'segment_bookmark_recovery', 'segment_finish_failure',
  'segment_create_failure', 'segment_marker_failure', 'segment_final_stall', 'segment_accept_stall', 'segment_overload_stall',
  'speech_control_saturation', 'segment_warning_failure', 'streaming_partial', 'partial_cancel', 'gap_partial', 'retired_partial', 'start_failure', 'stop_accept_timeout', 'stop_final_timeout']

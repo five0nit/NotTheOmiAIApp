@@ -55,7 +55,9 @@ public final class OmiCaptureServiceHostTest {
                 case "initial_retry": initialRetry(); break;
                 case "stop_recovery": stopRecovery(); break;
                 case "terminal_after_audio": terminalAfterAudio(); break;
-                case "recovery_timeout": recoveryTimeout(); break;
+                case "recovery_long_wait": recoveryLongWait(false, false); break;
+                case "recovery_long_stop": recoveryLongWait(true, false); break;
+                case "recovery_permission_loss": recoveryLongWait(false, true); break;
                 case "startup_timeout":
                     ready();Thread.sleep(30);android.os.SystemClock.offset=120001;finished();
                     check(OmiCaptureService.state.contains("startup timed out") && Recordings.total()==0,"startup retries remain bounded without PCM");break;
@@ -167,7 +169,7 @@ public final class OmiCaptureServiceHostTest {
         for(int i=0;i<100;i++) OmiBle.send(() -> OmiBle.instance.listener.onStatus("Omi invalid frame; incomplete task discarded"));
         check(NotificationManager.posts==connectingPosts,"identical startup diagnostics do not repost connecting notification");
         OmiBle.pcm(pcm(100,3));
-        check(NotificationManager.posts==connectingPosts+1,"first actual PCM publishes Recording");
+        check(NotificationManager.posts==connectingPosts+1,"first actual PCM publishes Recording: before="+connectingPosts+" after="+NotificationManager.posts+" attempts="+NotificationManager.attempts+" state="+OmiCaptureService.state);
         OmiBle.gap();
         check(NotificationManager.posts==connectingPosts+2,"audio loss publishes Recovering");
         for(int i=0;i<20;i++) OmiBle.gap();
@@ -215,7 +217,7 @@ public final class OmiCaptureServiceHostTest {
         Recordings.audioGate=new CountDownLatch(1);ready();OmiBle.pcm(pcm(100,3));await(Recordings.audioEntered);
         OmiBle.button(1);OmiBle.pcm(pcm(100,7));OmiBle.gap();OmiBle.gap();
         check(OmiCaptureService.active && OmiBle.stops==0,"recoverable gap must not cancel explicit session");
-        check(OmiCaptureService.state.contains("Recovering"),"gap is visible, not falsely recording");
+        check(OmiCaptureService.state.contains("Waiting for Omi"),"gap is visible, not falsely recording");
         OmiBle.send(() -> OmiBle.instance.listener.onStatus("Omi connection lost (Bluetooth status 8); retry in 1 seconds"));
         check(OmiBle.stops==0,"transport backoff remains armed");
         OmiBle.pcm(pcm(100,9));
@@ -254,12 +256,35 @@ public final class OmiCaptureServiceHostTest {
         OmiBle.send(() -> OmiBle.instance.listener.onStatus("BLE connection permission denied; capture disconnected, restart to retry"));
         finished();check("error".equals(Recordings.status) && OmiBle.stops==1,"nonrecoverable transport failures remain terminal");
     }
-    static void recoveryTimeout() throws Exception {
+    static void recoveryLongWait(boolean stopWhileWaiting, boolean revokePermission) throws Exception {
         ready();OmiBle.pcm(pcm(100,2));OmiBle.gap();
         OmiBle.send(() -> OmiBle.instance.listener.onStatus("Bluetooth linked · discovering Omi audio service"));
-        android.os.SystemClock.offset=120001;finished();
-        check(OmiCaptureService.state.contains("recovery timed out") && "error".equals(Recordings.status),"status callbacks cannot postpone no-PCM deadline");
-        check(Recordings.total()==200 && OmiBle.stops==1,"timeout retains audio and cancels retry");
+        until(()->Recordings.total()==200);
+        android.os.SystemClock.offset=120001;Thread.sleep(450);
+        check(OmiCaptureService.active && OmiBle.stops==0,"established session survives the former 120-second terminal boundary");
+        check(OmiCaptureService.state.startsWith("Waiting for Omi") && OmiCaptureService.level==0 && OmiCaptureService.partial.isEmpty(),"waiting never claims live audio or stale preview");
+        int posts=NotificationManager.posts;
+        for(int i=0;i<10;i++)OmiBle.gap();
+        android.os.SystemClock.offset=720001;Thread.sleep(450);
+        check(OmiCaptureService.active && PowerManager.held==1 && PowerManager.acquires>=2,"long wait renews bounded CPU lease without abandoning session");
+        check(Recordings.created==1 && Recordings.total()==200 && NotificationManager.posts==posts,"retry traffic creates no empty archives, fake audio or notification churn");
+        if(revokePermission){
+            android.content.Context.denied="connect";
+            android.os.SystemClock.offset+=1001;finished();
+            check("error".equals(Recordings.status) && OmiCaptureService.state.contains("access was removed"),"revoked permission remains terminal while waiting");
+        } else if(stopWhileWaiting){
+            stop();finished();
+            OmiBle.instance.listener.onPcm(pcm(100,8));
+            check(Recordings.total()==200 && Recordings.created==1,"Stop while waiting fences late PCM and preserves prefix only");
+        } else {
+            OmiBle.pcm(pcm(100,8));until(()->Recordings.total()==400);
+            check(OmiCaptureService.state.startsWith("Recording"),"real PCM resumes after twelve minutes unavailable");
+            stop();finished();
+            check(Recordings.created==2 && Recordings.finished==2,"long recovery creates exactly one separate continuation");
+            check(Arrays.equals(Recordings.segmentAudio("fixture-2"),little(pcm(100,8))),"continuation contains exact resumed PCM only");
+        }
+        check(Arrays.equals(Recordings.segmentAudio("fixture-1"),little(pcm(100,2))),"long wait retains byte-exact prefix");
+        check(OmiBle.stops==1,"one transport Stop after explicit/fatal terminal event");
     }
     static void repeatedGap() throws Exception {
         ready();OmiBle.pcm(pcm(100,1));OmiBle.gap();OmiBle.pcm(pcm(100,2));
@@ -395,7 +420,7 @@ public final class OmiCaptureServiceHostTest {
         PreviewRecognizer.acceptGate=new CountDownLatch(1);PreviewRecognizer.fail=true;
         ready();OmiBle.pcm(pcm(100,3));await(PreviewRecognizer.acceptEntered);OmiBle.gap();
         release(PreviewRecognizer.acceptGate);until(() -> PreviewRecognizer.failures==1);Thread.sleep(30);
-        check(OmiCaptureService.state.startsWith("Recovering") && OmiCaptureService.partial.isEmpty(),"late speech failure cannot falsely revive recording during gap");
+        check(OmiCaptureService.state.startsWith("Waiting for Omi") && OmiCaptureService.partial.isEmpty(),"late speech failure cannot falsely revive recording during gap");
         OmiBle.pcm(pcm(100,4));
         check(OmiCaptureService.state.contains("audio only"),"recovered PCM discloses failed speech");
         stop();finished();check(Recordings.total()==400 && "audio_only".equals(Recordings.status),"audio retained across gap with failed speech");
@@ -508,7 +533,7 @@ public final class OmiCaptureServiceHostTest {
         OmiBle.pcm(pcm(100,79));await(PreviewRecognizer.partialEntered);OmiBle.gap();
         check(OmiCaptureService.partial.isEmpty() && OmiCaptureService.display.snapshot().partial.isEmpty(),"gap clears live partial immediately");
         PreviewRecognizer.finalGate=new CountDownLatch(1);release(PreviewRecognizer.partialGate);await(PreviewRecognizer.finalEntered);
-        check(PreviewRecognizer.partials==2 && OmiCaptureService.partial.isEmpty() && OmiCaptureService.state.startsWith("Recovering"),
+        check(PreviewRecognizer.partials==2 && OmiCaptureService.partial.isEmpty() && OmiCaptureService.state.startsWith("Waiting for Omi"),
                 "pre-gap partial returns during recovery without reviving preview or recording state");
         release(PreviewRecognizer.finalGate);stop();finished();
     }
@@ -589,8 +614,18 @@ public final class OmiCaptureServiceHostTest {
         Handler.drain();check(!OmiCaptureService.active && Service.foregroundStops==1,"foreground ends last");
     }
     static void start(){check(service.onStartCommand(new Intent().setAction(OmiCaptureService.ACTION_START),0,1)==Service.START_NOT_STICKY,"nonsticky explicit start");}
-    static void stop(){OmiCaptureService.requestStopCapture();}
-    static void finished() throws Exception {joinWorker();Handler.drain();check(!OmiCaptureService.active,"finished inactive");check(Recordings.created==Recordings.finished,"one finish per session");}
+    // These archive-only tests finish with Disconnect; standby has real-BLE composition tests.
+    static void stop(){OmiCaptureService.requestDisconnect();}
+    static void finished() throws Exception {
+        joinWorker();Handler.drain();
+        if(OmiCaptureService.controlsActive){
+            OmiCaptureService.requestDisconnect();
+            long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(3);
+            while(Service.foregroundStops==0 && System.nanoTime()<end){Handler.drain();Thread.sleep(2);}
+            check(Service.foregroundStops==1,"standby disconnect completes");
+        }
+        check(!OmiCaptureService.active,"finished inactive");check(Recordings.created==Recordings.finished,"one finish per session");
+    }
     static void joinWorker() throws Exception {
         Field f=OmiCaptureService.class.getDeclaredField("worker");f.setAccessible(true);Thread t=(Thread)f.get(service);
         if(t!=null){t.join(5000);check(!t.isAlive(),"capture worker terminates");}

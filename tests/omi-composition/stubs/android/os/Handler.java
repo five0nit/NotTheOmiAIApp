@@ -65,6 +65,16 @@ public final class Handler {
             if (e != null) execute(Looper.MAIN, e);
         }
     }
+    /** Fence BLE work without dispatching the UI queue, for stale-action tests. */
+    public static void drainWorkers() {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        synchronized (LOCK) {
+            while (loopers.stream().anyMatch(l -> l != Looper.MAIN && (l.running || due(l)))) {
+                if (System.nanoTime() >= deadline) throw new AssertionError("Handler worker drain timeout");
+                try { LOCK.wait(2); } catch (InterruptedException failure) { throw new AssertionError(failure); }
+            }
+        }
+    }
     public static void advance(long milliseconds) {
         synchronized (LOCK) { clock += milliseconds; LOCK.notifyAll(); }
         drain();

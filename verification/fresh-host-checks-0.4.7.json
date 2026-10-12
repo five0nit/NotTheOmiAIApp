@@ -1,0 +1,93 @@
+{
+  "scope": "Fresh controlled host checks against the public 0.4.7 checkout; no Android/device execution",
+  "preparation_note": "Initial model-installer check rejected symlink fixtures; replaced with hash-verified regular copies. A later composition run exposed a test-only queued-callback race; added main-queue drain after worker exit without weakening assertions. Failures retained privately; production source unchanged.",
+  "result": "PASS",
+  "checks": [
+    {
+      "command": "python3 tests/omi/run_ble_tests.py",
+      "exit_code": 0,
+      "seconds": 3.76,
+      "summary": [
+        "PASS: 509 assertions across 39 controls-only BLE host scenarios",
+        "HOST ONLY: production OmiBle/ButtonEvent/Concentus; native-close ordering, not Android thread termination or wearable acceptance",
+        "HOST-ONLY PASS: ButtonBleTest, LedBleTest, BatteryBleTest, ReconnectBleTest, TransportBleTest, ControlsBleTest"
+      ]
+    },
+    {
+      "command": "python3 tests/omi-capture/run_host_checks.py",
+      "exit_code": 0,
+      "seconds": 51.32,
+      "summary": [
+        "OmiCaptureServiceHostTest PASS stop_accept_timeout: 36 assertions",
+        "OmiCaptureServiceHostTest PASS stop_final_timeout: 38 assertions",
+        "OmiCaptureService host PASS: 53 scenarios (controlled doubles, not device acceptance)."
+      ]
+    },
+    {
+      "command": "python3 tests/omi-composition/run_host_checks.py",
+      "exit_code": 0,
+      "seconds": 17.74,
+      "summary": [
+        "ControlsCompositionHostTest PASS controls_stop_transition: 20 assertions; segments=[]; bytes=0",
+        "ControlsCompositionHostTest PASS controls_stop_intent_transition: 21 assertions; segments=[]; bytes=0",
+        "Omi composition host PASS: 28 scenarios; 848 assertions; real service + BLE + Concentus; fake Android/GATT/storage/preview."
+      ]
+    },
+    {
+      "command": "python3 tests/capture/run_host_checks.py",
+      "exit_code": 0,
+      "seconds": 9.2,
+      "summary": [
+        "CaptureServiceHostTest PASS stop_final_timeout: 43 assertions",
+        "CaptureServiceHostTest PASS stop_storage_blocked: 31 assertions",
+        "CaptureService host PASS: 19 scenarios (Android/native/storage doubles)."
+      ]
+    },
+    {
+      "command": "python3 tests/hybrid/run_host_checks.py",
+      "exit_code": 0,
+      "seconds": 0.85,
+      "summary": [
+        "{\"result\":\"PASS_REFINEMENT_ENGINE_HOST\",\"scenarios\":14,\"assertions\":2400217,\"scope\":\"production bounded engine with fake decoder/store; not native recognition\"}"
+      ]
+    },
+    {
+      "command": "python3 tests/hybrid/run_job_checks.py",
+      "exit_code": 0,
+      "seconds": 1.53,
+      "summary": [
+        "RefinementJobHostTest PASS capture-active: 4 assertions; production service with controlled doubles",
+        "RefinementJobHostTest PASS success: 10 assertions; production service with controlled doubles",
+        "JobService lifecycle PASS: 6 scenarios; Android/native/store doubles, not device lifecycle acceptance."
+      ]
+    },
+    {
+      "command": "python3 tests/whisper-java/run_host_checks.py",
+      "exit_code": 0,
+      "seconds": 0.84,
+      "summary": [
+        "WhisperJavaWrapperTest PASS: 32 assertions; mocked JNI, production wrappers"
+      ]
+    },
+    {
+      "command": "python3 tests/library-dates/run_host_checks.py",
+      "exit_code": 0,
+      "seconds": 1.06,
+      "summary": [
+        "PASS bounded emoji and surrogate boundaries",
+        "LibraryDatesTest: PASS (15 tests, 37831 assertions; default zone=Asia/Tokyo)",
+        "LibraryDates host checks: PASS; temporary classes removed"
+      ]
+    },
+    {
+      "command": "python3 tests/buttons/test_android_runner.py",
+      "exit_code": 0,
+      "seconds": 0.05,
+      "summary": [
+        "Ran 6 tests in 0.000s",
+        "",
+        "OK"
+      ]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.ParcelUuid;
+import android.os.SystemClock;
 import org.concentus.OpusDecoder;
 import java.io.ByteArrayOutputStream;
 import java.util.*;
@@ -25,6 +26,9 @@ public final class OmiBle {
     public interface Listener {
         void onDevice(String address, String name); void onPcm(short[] samples);
         void onStatus(String status); void onGap(); void onButton(int event);
+        /** Carry this token through a UI queue; revalidate with connectionGeneration()
+         * before acting. The token belongs to the notification, not dispatch time. */
+        default void onButton(int event, long generation) { onButton(event); }
         default void onLedState(LedState state) {}
         /** Standard BAS percentage, 0..100; -1 means unknown/unavailable. */
         default void onBattery(int percent) {}
@@ -63,9 +67,13 @@ public final class OmiBle {
     private String selected; private boolean stopped = true, scanning; private int retry;
     private volatile int operation;
     private final AtomicLong selectionEpoch = new AtomicLong();
+    private final AtomicLong connectionGeneration = new AtomicLong();
+    private volatile long gattGeneration;
+    private boolean controlsOnly;
     private long activeSelection;
     // Operations 1..5 are connect/MTU/discover/codec/audio CCC; 6 is idle,
-    // 7 is optional button CCC; 8/9/10 are LED read/write/readback; 11 is BAS read;
+    // 7 is button CCC (required in controls-only mode); 8/9/10 are LED
+    // read/write/readback; 11 is BAS read;
     // 12 is the bounded settling delay before one incomplete-discovery recheck.
     // Audio and buttons keep flowing during optional operations.
     private Runnable deadline, audioDeadline, retryTask;
@@ -82,6 +90,31 @@ public final class OmiBle {
         "LED brightness unknown; read during an existing live connection");
     private OpusDecoder decoder;
     private final FrameAssembler frames = new FrameAssembler();
+    // In-memory, payload-free diagnostics. Never retain packet bytes, selection,
+    // user strings or transcript text. Counters are approximate live snapshots.
+    private enum Event { OPEN, CONNECTION_CALLBACK, NATIVE_LOSS, GATT_TIMEOUT, AUDIO_TIMEOUT, FAILURE, STOP_OR_REPLACE }
+    private final ArrayDeque<String> diagnosticEvents = new ArrayDeque<>();
+    private final AtomicLong ingressPackets = new AtomicLong(), lastIngressAt = new AtomicLong(-1);
+    private volatile long openedConnections, decodedFrames, decodedSamples, lastDecodedAt = -1;
+    private volatile int lastConnectionStatus = -1, negotiatedMtu = -1;
+    private volatile Event lastCloseReason = Event.STOP_OR_REPLACE;
+    private void diagnosticEvent(Event event, int value) {
+        synchronized (diagnosticEvents) {
+            if (diagnosticEvents.size() == 32) diagnosticEvents.removeFirst();
+            diagnosticEvents.addLast("elapsed_ms=" + SystemClock.elapsedRealtime() + " event=" + event
+                + " value=" + value + " operation=" + operation);
+        }
+    }
+    String diagnostics() {
+        long now = SystemClock.elapsedRealtime(), ingress = lastIngressAt.get(), decoded = lastDecodedAt;
+        String history;
+        synchronized (diagnosticEvents) { history = String.join("\n", diagnosticEvents); }
+        return "ble_snapshot=approximate operation=" + operation + " attempts=" + openedConnections
+            + " connection_status=" + lastConnectionStatus + " mtu=" + negotiatedMtu + " close_reason=" + lastCloseReason
+            + " ingress_packets=" + ingressPackets.get() + " ingress_age_ms=" + (ingress < 0 ? -1 : Math.max(0, now-ingress))
+            + " decoded_frames=" + decodedFrames + " decoded_samples=" + decodedSamples
+            + " decoded_age_ms=" + (decoded < 0 ? -1 : Math.max(0, now-decoded)) + "\n" + history;
+    }
     public OmiBle(Context context, Listener listener) {
         this.context = context.getApplicationContext(); this.listener = listener;
         BluetoothManager manager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
@@ -91,6 +124,10 @@ public final class OmiBle {
     }
     public void readLedBrightness() { requestLed(false, -1); }
     public void setLedBrightness(int value) { requestLed(true, value); }
+    /** Invalidated synchronously by selection/Stop and native loss, and on close.
+     * Compare against Listener.onButton(event, generation) at downstream dispatch.
+     * This is an instance-local invalidation token, not connection readiness. */
+    public long connectionGeneration() { return connectionGeneration.get(); }
     private void requestLed(boolean write, int value) {
         // Capture the connection at entry, not at dispatch: commands must never
         // migrate across a queued Stop, selection, or natural reconnect.
@@ -238,6 +275,7 @@ public final class OmiBle {
     private interface SelectionAction { void run(long request); }
     private void select(SelectionAction action) {
         synchronized (workerLock) {
+            connectionGeneration.incrementAndGet();
             long request = selectionEpoch.incrementAndGet();
             if (handler == null) {
                 worker = new HandlerThread("OmiBle"); worker.start();
@@ -270,32 +308,49 @@ public final class OmiBle {
             handler.postDelayed(scanEnd, 15000);
         } catch (RuntimeException e) { stopScan(); listener.onStatus("BLE scan failed: check Bluetooth permissions"); }
     }); }
-    public void connect(String address) { select(request -> {
+    /** Existing capture mode: codec, audio CCC, then optional button CCC. */
+    public void connect(String address) { connect(address, false); }
+    /** Button-only mode: no codec read, audio CCC, decoder, or audio watchdog.
+     * Missing button support is a visible retryable failure, never audio fallback. */
+    public void connectControls(String address) { connect(address, true); }
+    private void connect(String address, boolean controls) { select(request -> {
         stopInternal();
         if (request != selectionEpoch.get()) return;
-        activeSelection = request;
+        activeSelection = request; controlsOnly = controls;
         if (address == null || !BluetoothAdapter.checkBluetoothAddress(address)) { listener.onStatus("Invalid selected Bluetooth address"); return; }
         selected = address; stopped = false; retry = 0; open();
     }); }
-    public void stop() {
+    public void stop() { stop(null); }
+    /** Completion runs after native disconnect/close and stopInternal(), outside
+     * workerLock. Normally on the BLE worker after quitSafely is requested; on the
+     * caller if already idle. A newer selection retains the same FIFO worker, but
+     * cannot cancel this closure barrier. Safe to post a new connection from it.
+     * This does NOT await actual thread exit; never join the BLE worker here. */
+    public void stop(Runnable afterClosed) {
         synchronized (workerLock) {
+            connectionGeneration.incrementAndGet();
             long request = selectionEpoch.incrementAndGet();
-            if (handler == null) { listener.onBattery(-1); return; }
-            Handler closingHandler = handler; HandlerThread closingWorker = worker;
-            closingHandler.post(() -> {
-                if (request != selectionEpoch.get()) return;
-                try { stopInternal(); }
-                finally {
-                    synchronized (workerLock) {
-                        // A concurrent/reentrant start keeps this same FIFO queue.
-                        if (request == selectionEpoch.get() && handler == closingHandler) {
-                            closingHandler.removeCallbacksAndMessages(null);
-                            closingWorker.quitSafely(); handler = null; worker = null;
+            if (handler != null) {
+                Handler closingHandler = handler; HandlerThread closingWorker = worker;
+                closingHandler.post(() -> {
+                    if (afterClosed == null && request != selectionEpoch.get()) return;
+                    try { stopInternal(); }
+                    finally {
+                        synchronized (workerLock) {
+                            // A concurrent/reentrant start keeps this same FIFO queue.
+                            if (request == selectionEpoch.get() && handler == closingHandler) {
+                                closingHandler.removeCallbacksAndMessages(null);
+                                closingWorker.quitSafely(); handler = null; worker = null;
+                            }
                         }
+                        if (afterClosed != null) afterClosed.run();
                     }
-                }
-            });
+                });
+                return;
+            }
         }
+        try { listener.onBattery(-1); }
+        finally { if (afterClosed != null) afterClosed.run(); }
     }
     private void open() {
         if (stopped || selected == null || activeSelection != selectionEpoch.get()) return;
@@ -308,6 +363,8 @@ public final class OmiBle {
             if (!adapter.isEnabled()) { fail("Bluetooth disabled; waiting for Bluetooth", true); return; }
             listener.onStatus("Connecting to selected Omi · keep wearable nearby");
             if (stopped || selected == null || activeSelection != selectionEpoch.get()) return;
+            openedConnections++; negotiatedMtu = -1; diagnosticEvent(Event.OPEN, 0);
+            gattGeneration = connectionGeneration.get();
             gatt = adapter.getRemoteDevice(selected).connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE);
             if (gatt == null) { fail("Cannot create BLE connection", true); return; }
             arm(1);
@@ -340,21 +397,23 @@ public final class OmiBle {
             if (deadline != this || !current(remote, op)) return;
             // A missing callback is not proof that the native MTU request ended.
             // Close before retrying; never overlap discovery with uncertain work.
-            if (op == 2) fail("Omi MTU negotiation timed out", true);
+            if (op == 2) fail("Omi MTU negotiation timed out", true, Event.GATT_TIMEOUT);
             else if (op == 7) {
+                if (controlsOnly) { buttonUnavailable(remote, "subscription timed out"); return; }
                 // The optional ATT operation may still be pending natively.
                 quarantineOptional(); buttonUnavailable(remote, "subscription timed out");
             }
             else if (op >= 8 && op <= 10) ledFailure(remote,
                 "LED operation timed out; unavailable until next natural reconnect", true);
             else if (op == 11) batteryFailure(remote, true);
-            else fail((op == 1 ? "Omi connection" : op == 3 ? "Omi service discovery" : op == 4 ? "Omi audio format check" : "Omi audio subscription") + " timed out", true);
+            else fail((op == 1 ? "Omi connection" : op == 3 ? "Omi service discovery" : op == 4 ? "Omi audio format check" : "Omi audio subscription") + " timed out", true, Event.GATT_TIMEOUT);
         } };
         handler.postDelayed(deadline, 15000);
     }
     private boolean current(BluetoothGatt remote) { return !stopped && activeSelection == selectionEpoch.get() && remote != null && remote == gatt; }
     private boolean current(BluetoothGatt remote, int op) { return current(remote) && operation == op; }
     private void closeGatt() {
+        connectionGeneration.incrementAndGet();
         cancelDeadline(); cancelBatteryPoll(); BluetoothGatt old = gatt; gatt = null; operation = 0;
         cancelAudioWatch(); audioReady = buttonReady = audioReceived = false;
         discoveryRechecked = false;
@@ -367,6 +426,7 @@ public final class OmiBle {
         listener.onBattery(-1);
     }
     private void stopInternal() {
+        lastCloseReason = Event.STOP_OR_REPLACE; diagnosticEvent(lastCloseReason, 0);
         stopped = true; selected = null; stopScan();
         cancelRetry();
         closeGatt(); listener.onGap();
@@ -376,6 +436,10 @@ public final class OmiBle {
         retryTask = null;
     }
     private void fail(String status, boolean reconnect) {
+        fail(status, reconnect, Event.FAILURE);
+    }
+    private void fail(String status, boolean reconnect, Event cause) {
+        lastCloseReason = cause; diagnosticEvent(cause, reconnect ? 1 : 0);
         cancelRetry(); closeGatt(); listener.onGap();
         if (!stopped && reconnect && selected != null) {
             // A native timeout already took ~10s in the observed incident. Do
@@ -391,16 +455,29 @@ public final class OmiBle {
             listener.onStatus(status + "; retry in " + (delay / 1000) + " seconds");
         } else {
             stopped = true;
-            listener.onStatus(status + "; capture disconnected, restart to retry");
+            listener.onStatus(status + (controlsOnly ? "; controls disconnected, restart to retry" : "; capture disconnected, restart to retry"));
         }
     }
     private final BluetoothGattCallback callback = new BluetoothGattCallback() {
-        @Override public void onConnectionStateChange(BluetoothGatt remote, int status, int state) { postEvent(() -> {
-            if (!current(remote)) return;
+        @Override public void onConnectionStateChange(BluetoothGatt remote, int status, int state) {
             if (status != BluetoothGatt.GATT_SUCCESS || state == BluetoothProfile.STATE_DISCONNECTED) {
-                fail("Omi connection lost (Bluetooth status " + status + ")", true); return;
+                // Revoke main-queued button actions at native ingress, even while
+                // the worker is busy. An old GATT cannot revoke its replacement.
+                synchronized (workerLock) {
+                    long generation = gattGeneration;
+                    if (remote != null && remote == gatt)
+                        connectionGeneration.compareAndSet(generation, generation + 1);
+                }
+            }
+            postEvent(() -> {
+            if (!current(remote)) return;
+            lastConnectionStatus = status; diagnosticEvent(Event.CONNECTION_CALLBACK, status);
+            if (status != BluetoothGatt.GATT_SUCCESS || state == BluetoothProfile.STATE_DISCONNECTED) {
+                fail("Omi connection lost (Bluetooth status " + status + ")", true, Event.NATIVE_LOSS); return;
             }
             if (state == BluetoothProfile.STATE_CONNECTED && operation == 1) {
+                // Eight-byte stock button events fit the default ATT MTU.
+                if (controlsOnly) { discover(remote); return; }
                 listener.onStatus("Bluetooth linked · negotiating audio packet size");
                 if (!current(remote, 1)) return;
                 try { arm(2); if (!remote.requestMtu(247)) discover(remote); }
@@ -408,11 +485,14 @@ public final class OmiBle {
                 catch (RuntimeException e) { fail("Omi MTU negotiation failed", true); }
             }
         }); }
-        @Override public void onMtuChanged(BluetoothGatt remote, int mtu, int status) { postEvent(() -> { if (current(remote, 2)) discover(remote); }); }
+        @Override public void onMtuChanged(BluetoothGatt remote, int mtu, int status) { postEvent(() -> { if (current(remote, 2)) { negotiatedMtu = status == BluetoothGatt.GATT_SUCCESS ? mtu : -1; discover(remote); } }); }
         @Override public void onServicesDiscovered(BluetoothGatt remote, int status) { postEvent(() -> {
             if (!current(remote, 3)) return;
             try {
                 if (status != BluetoothGatt.GATT_SUCCESS) { fail("Omi service discovery failed", true); return; }
+                if (controlsOnly) {
+                    cancelDeadline(); operation = 6; subscribeButton(remote); return;
+                }
                 BluetoothGattService service = remote.getService(SERVICE);
                 if (service == null || service.getCharacteristic(CODEC) == null || service.getCharacteristic(AUDIO) == null) {
                     recheckDiscovery(remote, service == null ? "Omi audio service unavailable"
@@ -445,7 +525,7 @@ public final class OmiBle {
             // Both descriptors have UUID 0x2902: match the actual pending target,
             // not just its UUID, and never accept an earlier connection's ack.
             if (!current(remote) || descriptor == null || descriptor != pendingDescriptor || !CCC.equals(descriptor.getUuid())) return;
-            if (operation == 5) {
+            if (!controlsOnly && operation == 5) {
                 if (status != BluetoothGatt.GATT_SUCCESS) { fail("Omi notification subscription failed", true); return; }
                 cancelDeadline(); pendingDescriptor = null; operation = 6;
                 audioReady = true; armAudioWatch(); subscribeButton(remote);
@@ -485,14 +565,15 @@ public final class OmiBle {
     }
     private void discover(BluetoothGatt remote) {
         if (!current(remote)) return;
-        listener.onStatus("Bluetooth linked · discovering Omi audio service");
+        listener.onStatus(controlsOnly ? "Bluetooth linked · discovering Omi button service"
+            : "Bluetooth linked · discovering Omi audio service");
         if (!current(remote)) return; // Stop/new selection during listener delivery.
         try { arm(3); if (!remote.discoverServices()) fail("Cannot discover Omi services", true); }
         catch (SecurityException e) { fail("BLE connection permission denied", false); }
         catch (RuntimeException e) { fail("BLE discovery failed", true); }
     }
     private void codecRead(BluetoothGatt remote, BluetoothGattCharacteristic target, byte[] value, int status) { postEvent(() -> {
-        if (!current(remote, 4) || target != codecCharacteristic || !CODEC.equals(target.getUuid())) return;
+        if (controlsOnly || !current(remote, 4) || target != codecCharacteristic || !CODEC.equals(target.getUuid())) return;
         if (status != BluetoothGatt.GATT_SUCCESS || value == null || value.length != 1) { fail("Omi codec read failed", true); return; }
         int codec = value[0] & 255;
         // Pinned DevKit 20 (10 ms) and Omi 21 (20 ms) share 16 kHz mono Opus
@@ -515,7 +596,7 @@ public final class OmiBle {
     }); }
     private void subscribeButton(BluetoothGatt remote) {
         if (!current(remote, 6)) return;
-        // Audio CCC has completed before this optional GATT operation begins.
+        // Capture completes audio CCC first; controls-only starts here directly.
         // Do NOT read button state: stock firmware retains the last press value.
         buttonReady = false;
         try {
@@ -536,6 +617,7 @@ public final class OmiBle {
     }
     private void buttonUnavailable(BluetoothGatt remote, String reason) {
         if (!current(remote)) return;
+        if (controlsOnly) { fail("Omi button controls unavailable (" + reason + ")", true); return; }
         cancelDeadline(); pendingDescriptor = null; operation = 6; buttonReady = false;
         if (buttonCharacteristic != null) {
             try { remote.setCharacteristicNotification(buttonCharacteristic, false); } catch (RuntimeException ignored) {}
@@ -546,29 +628,41 @@ public final class OmiBle {
         // No reconnect, audio gap, or audio watchdog reset for optional failure.
     }
     private String streamStatus() {
+        if (controlsOnly) return "Omi connected: controls only (not recording)";
         return audioReceived ? "Omi connected: receiving audio · local transcription active"
             : "Omi connected: waiting for first audio";
     }
     private void cancelAudioWatch() { if (audioDeadline != null) handler.removeCallbacks(audioDeadline); audioDeadline = null; }
     private void armAudioWatch() {
         cancelAudioWatch(); BluetoothGatt remote = gatt;
+        if (controlsOnly) return;
         // CCC acknowledgement is not PCM readiness. Give firmware startup its
         // own bounded grace, without weakening loss detection once PCM flowed.
         long timeout = audioReceived ? 15000L : 30000L;
         audioDeadline = new Runnable() { @Override public void run() {
             if (audioDeadline == this && current(remote) && audioReady)
-                fail("No Omi audio for " + timeout / 1000 + " seconds", true);
+                fail("No Omi audio for " + timeout / 1000 + " seconds", true, Event.AUDIO_TIMEOUT);
         } };
         handler.postDelayed(audioDeadline, timeout);
     }
-    private void packet(BluetoothGatt remote, BluetoothGattCharacteristic characteristic, byte[] value) { postEvent(() -> {
+    private void packet(BluetoothGatt remote, BluetoothGattCharacteristic characteristic, byte[] value) {
+        long generation = gattGeneration;
+        // Before worker dispatch: distinguish ingress from worker/decode stalls.
+        // No diagnostic IO or allocation per packet; never keep packet contents.
+        if (remote != null && remote == gatt && characteristic != null && AUDIO.equals(characteristic.getUuid())) {
+            ingressPackets.incrementAndGet(); lastIngressAt.set(SystemClock.elapsedRealtime());
+        }
+        postEvent(() -> {
         if (!current(remote)) return;
         if (buttonReady && characteristic == buttonCharacteristic) {
             int event = ButtonEvent.decode(value);
-            if (event != ButtonEvent.NONE) listener.onButton(event);
+            if (event != ButtonEvent.NONE && generation == connectionGeneration.get()) {
+                if (controlsOnly) retry = 0; // A fresh button, not CCC ack, proves controls life.
+                listener.onButton(event, generation);
+            }
             return; // Buttons never refresh the audio watchdog.
         }
-        if (!audioReady || characteristic != audioCharacteristic || decoder == null) return;
+        if (controlsOnly || !audioReady || characteristic != audioCharacteristic || decoder == null) return;
         byte[] opus = frames.accept(value);
         // Startup is bounded from subscription, not from the first fragment.
         // Only decoded PCM proves life: partial/corrupt/duplicate traffic cannot
@@ -577,6 +671,7 @@ public final class OmiBle {
         if (opus == null) return;
         try { short[] pcm = new short[1920]; int count = decoder.decode(opus, 0, opus.length, pcm, 0, pcm.length, false);
             if (count > 0 && current(remote)) {
+                decodedFrames++; decodedSamples += count; lastDecodedAt = SystemClock.elapsedRealtime();
                 boolean firstAudio = !audioReceived;
                 audioReceived = true; retry = 0; armAudioWatch(); listener.onPcm(Arrays.copyOf(pcm, count));
                 if (firstAudio) {

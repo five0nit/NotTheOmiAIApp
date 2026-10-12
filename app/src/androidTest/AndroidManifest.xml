@@ -1,1 +1,13 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application><uses-library android:name="android.test.runner" /></application></manifest>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ <application>
+  <uses-library android:name="android.test.runner" />
+  <activity android:name="app.nottheomi.ai.ButtonShortcutFixtureActivity" android:exported="true" android:label="Synthetic shortcut provider">
+   <intent-filter><action android:name="android.intent.action.CREATE_SHORTCUT"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>
+  </activity>
+  <activity android:name="app.nottheomi.ai.ButtonShortcutFixtureActivity$Launch" android:exported="true" android:label="Synthetic launchable app">
+   <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+  </activity>
+  <activity android:name="app.nottheomi.ai.ButtonShortcutFixtureActivity$Private" android:exported="false"/>
+  <activity android:name="app.nottheomi.ai.ButtonShortcutFixtureActivity$Restricted" android:exported="true" android:permission="android.permission.MANAGE_USERS"/>
+ </application>
+</manifest>

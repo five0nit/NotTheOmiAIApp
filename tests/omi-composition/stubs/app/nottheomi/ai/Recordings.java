@@ -13,7 +13,10 @@ public final class Recordings {
     public static final List<byte[]> audio = new ArrayList<>();
     public static final List<String> audioIds = new ArrayList<>();
     public static String current;
-    public static Recordings get(android.content.Context context) { return INSTANCE; }
+    public static volatile int gets;
+    public static volatile java.util.concurrent.CountDownLatch audioGate;
+    public static final java.util.concurrent.CountDownLatch audioEntered = new java.util.concurrent.CountDownLatch(1);
+    public static Recordings get(android.content.Context context) { gets++; return INSTANCE; }
     public static final class Session { public String id; Session(String id) { this.id = id; } }
     public synchronized Session create() {
         if (current != null) throw new AssertionError("new segment before old finish");
@@ -25,12 +28,20 @@ public final class Recordings {
         if (!Objects.equals(id, current) || statuses.containsKey(id)) throw new AssertionError("write to non-current/finished segment " + id);
         if (Thread.currentThread().getName().equals("OmiBle")) throw new AssertionError("storage on BLE worker");
     }
-    public synchronized void appendAudio(String id, byte[] bytes, int length) {
-        writable(id);
-        if (length <= 0 || length > 6400) throw new AssertionError("unbounded/empty PCM append");
-        byte[] copy = Arrays.copyOf(bytes, length);
-        pcm.get(id).write(copy, 0, length); audio.add(copy); audioIds.add(id);
-        operations.add("audio:" + id + ":" + length);
+    public void appendAudio(String id, byte[] bytes, int length) {
+        java.util.concurrent.CountDownLatch gate = audioGate;
+        if (gate != null) {
+            audioEntered.countDown();
+            try { gate.await(); }
+            catch (InterruptedException failure) { throw new AssertionError("archive commit interrupted", failure); }
+        }
+        synchronized (this) {
+            writable(id);
+            if (length <= 0 || length > 6400) throw new AssertionError("unbounded/empty PCM append");
+            byte[] copy = Arrays.copyOf(bytes, length);
+            pcm.get(id).write(copy, 0, length); audio.add(copy); audioIds.add(id);
+            operations.add("audio:" + id + ":" + length);
+        }
     }
     public synchronized void appendText(String id, String text) {
         writable(id); texts.get(id).add(text); operations.add("text:" + id + ":" + text);

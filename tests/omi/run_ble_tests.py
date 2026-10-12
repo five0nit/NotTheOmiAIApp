@@ -11,7 +11,7 @@ import textwrap
 sys.dont_write_bytecode = True
 from run_button_ble_tests import ROOT, SOURCES
 
-CLASSES = ('ButtonBleTest', 'LedBleTest', 'BatteryBleTest', 'ReconnectBleTest', 'TransportBleTest')
+CLASSES = ('ButtonBleTest', 'LedBleTest', 'BatteryBleTest', 'ReconnectBleTest', 'TransportBleTest', 'ControlsBleTest')
 
 def main():
     selected = sys.argv[1:] or CLASSES

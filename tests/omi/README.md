@@ -21,6 +21,11 @@ and decoding rather than fabricated PCM.
 - `ButtonBleTest`: strict stock 8-byte button layout; retained-read suppression;
   serial required audio/optional button CCCs; descriptor identity; both callback
   APIs; optional failure/timeouts; PCM readiness and watchdogs; stale callbacks.
+- `ControlsBleTest`: required button-only subscription without an audio service;
+  no codec read/audio CCC/decoder/audio watchdog or unsolicited PCM; exact discrete
+  button events; required-button failures and controls-only retry; same-instance
+  close-before-open capture handovers; generation invalidation at native loss,
+  selection and Stop; native-close completion barriers and reentrant cancellation.
 - `LedBleTest`: current-connection successful-read prerequisite; explicit 0–100
   write; acknowledged write followed by readback; busy rejection; stale targets,
   timeouts and ATT quarantine. Device readback is not reboot persistence proof.
@@ -29,7 +34,7 @@ and decoding rather than fabricated PCM.
 - `ReconnectBleTest`: discovery recheck, operation deadlines, bounded fast retry
   burst followed by persistent backoff, startup vs established-audio watchdog,
   disconnect/Stop/new-selection invalidation.
-- `TransportBleTest`: codec 20 only (including rejection of 21); exact codec read
+- `TransportBleTest`: codecs 20 and 21; exact codec read
   identity/layout; MTU uncertainty never overlaps discovery; actual fragmented
   Opus sample equality, sequence wrap/loss and decoder reset; malformed/orphan/
   oversized frames; scan permission failures/epochs; reentrant setup cancellation
@@ -37,7 +42,35 @@ and decoding rather than fabricated PCM.
   two-byte OTA status layout (both read callback APIs), revoke any prior read
   authorization, and prove no start/cancel/status command is written as brightness.
 
-## Reuse and limits
+## Controls-only integration contract
+
+`connectControls(String address)` uses the existing selection FIFO and teardown,
+but goes directly from link/discovery to the button CCC. It does not negotiate an
+audio MTU or perform optional BAS/LED operations. Missing or failed button support
+is visible and retryable; controls mode never falls back to capture.
+`connect(String address)` keeps its codec/audio-first path. Either mode closes the prior native
+GATT before opening its replacement on the same instance.
+
+`stop(Runnable afterClosed)` is an additive native-close barrier. The callback runs
+once after `stopInternal()` and native disconnect/close calls have returned (or
+thrown, under the existing best-effort teardown). It runs outside `workerLock` on
+the BLE worker, after `quitSafely()` is requested if no newer selection retains the
+queue; if no worker exists it runs synchronously on the caller. It may post work
+to main or start a new selection. A later Stop/selection cannot silently cancel a
+requested completion. It does **not** prove actual worker-thread termination:
+retain any service-owned off-worker join needed for a full capture drain, and
+never join the BLE worker from its completion callback. No `stopAndAwait()` was
+added, and the unchanged no-argument `stop()` remains available.
+
+Override `Listener.onButton(int event, long generation)` to carry the original
+notification token onto a downstream/main queue. Before acting, compare it to
+the same client's `connectionGeneration()` (and verify the client is still the
+service's selected instance). The token is invalidated synchronously by selection
+or Stop, at current-GATT native loss ingress, and at close. It is not readiness.
+Do not re-sample the token later and attach it to an old event. The default overload
+delegates to existing `onButton(int event)` listeners for source compatibility.
+
+## Fixture provenance
 
 Ported from the local `omi-private-phone` host fixtures with package/path changes.
 `TransportBleTest` and the aggregate runner add scoped hardening coverage; the

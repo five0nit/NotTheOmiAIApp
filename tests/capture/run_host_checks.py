@@ -75,6 +75,7 @@ public class Context {
  public static int foregroundStarts, foregroundStops, selfStops; public static boolean failForeground;
  public void onCreate(){} public void onDestroy(){} public android.os.IBinder onBind(android.content.Intent i){return null;}
  public int onStartCommand(android.content.Intent i,int f,int id){return 0;}
+ protected void dump(java.io.FileDescriptor fd,java.io.PrintWriter out,String[] args){}
  public void startForeground(int id,Notification n){foregroundStarts++;}
  public void startForeground(int id,Notification n,int type){foregroundStarts++;}
  public void stopForeground(int flags){foregroundStops++;} public void stopSelf(){selfStops++;} public void stopSelf(int id){selfStops++;}

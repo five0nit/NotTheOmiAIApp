@@ -7,6 +7,7 @@ neither script is imported/executed. No Android SDK, Gradle, ADB or dependencies
 import argparse
 import ast
 import pathlib
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -14,8 +15,16 @@ import textwrap
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HERE = pathlib.Path(__file__).resolve().parent
 SOURCE = ROOT / 'app/src/main/java'
-SCENARIOS = ('startup_retry', 'sequence_loss', 'malformed_opus', 'link_recovery', 'stop_backoff',
-             'recovery_before_deadline', 'recovery_at_deadline', 'startup_at_deadline')
+ARCHIVE_SCENARIOS = ('startup_retry', 'sequence_loss', 'malformed_opus', 'link_recovery', 'disconnect_backoff',
+                     'recovery_before_deadline', 'recovery_long_absence', 'startup_at_deadline', 'diagnostics')
+CONTROLS_SCENARIOS = ('controls_idle', 'controls_start_exit', 'controls_toggle_exit',
+                      'controls_stop_standby', 'controls_disconnect_drain', 'controls_disconnect_transition',
+                      'controls_stop_backoff', 'controls_stale_gatt', 'controls_stale_listener',
+                      'controls_live_buttons', 'controls_prepcm_stop', 'controls_fatal_stop')
+CONTROLS_SCENARIOS += ('controls_media', 'capture_media')
+CONTROLS_SCENARIOS += ('controls_reject_phone', 'controls_reject_permission', 'controls_reject_notification',
+                       'controls_stop_transition', 'controls_stop_intent_transition')
+SCENARIOS = ARCHIVE_SCENARIOS + CONTROLS_SCENARIOS
 
 
 def literal(path, name):
@@ -26,10 +35,13 @@ def literal(path, name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scenario', choices=SCENARIOS, help='run one focused scenario')
+    parser.add_argument('--scenario', choices=SCENARIOS + ('stop_backoff',), help='run one focused scenario (stop_backoff aliases disconnect_backoff)')
     parser.add_argument('--service-ref', help='negative-control service source from this local Git ref (read-only)')
     args = parser.parse_args()
-    scenarios = (args.scenario,) if args.scenario else SCENARIOS
+    scenario = 'disconnect_backoff' if args.scenario == 'stop_backoff' else args.scenario
+    scenarios = (scenario,) if scenario else (ARCHIVE_SCENARIOS if args.service_ref else SCENARIOS)
+    if args.service_ref and scenario in CONTROLS_SCENARIOS:
+        parser.error('--service-ref covers historical archive scenarios only; controls requires the current service API')
     stubs = literal(ROOT / 'tests/capture/run_host_checks.py', 'STUBS')
     stubs = {key: value for key, value in stubs.items() if not key.startswith('android/media/')}
     stubs.pop('app/nottheomi/ai/OmiCaptureService.java')  # Use the production composition owner.
@@ -77,13 +89,26 @@ def main():
             replacement.write_text(original)
             production[0] = replacement
             print(f'NEGATIVE CONTROL: service from {args.service_ref}; all other production sources from working tree.', flush=True)
+        tests = [HERE / 'OmiCompositionHostTest.java']
+        if any(s in CONTROLS_SCENARIOS for s in scenarios):
+            tests.append(HERE / 'ControlsCompositionHostTest.java')
         subprocess.run(['javac', '--release', '17', '-d', str(classes),
             *map(str, sorted(java.rglob('*.java'))), *map(str, production),
-            str(HERE / 'OmiCompositionHostTest.java')], check=True, timeout=120)
+            *map(str, tests)], check=True, timeout=120)
+        assertions = 0
         for scenario in scenarios:
-            subprocess.run(['java', '-cp', str(classes), 'app.nottheomi.ai.OmiCompositionHostTest', scenario],
-                check=True, timeout=25)
-    print(f'Omi composition host PASS: {len(scenarios)} scenarios; real service + BLE + Concentus; fake Android/GATT/storage/preview.')
+            test_class = 'ControlsCompositionHostTest' if scenario in CONTROLS_SCENARIOS else 'OmiCompositionHostTest'
+            result = subprocess.run(['java', '-cp', str(classes), f'app.nottheomi.ai.{test_class}', scenario],
+                capture_output=True, text=True, timeout=25)
+            print(result.stdout, end='', flush=True)
+            if result.stderr:
+                print(result.stderr, end='', flush=True)
+            result.check_returncode()
+            counts = re.findall(rf'{test_class} PASS {re.escape(scenario)}: (\d+) assertions;', result.stdout)
+            if len(counts) != 1:
+                raise AssertionError(f'missing/duplicate assertion receipt for {scenario}')
+            assertions += int(counts[0])
+    print(f'Omi composition host PASS: {len(scenarios)} scenarios; {assertions} assertions; real service + BLE + Concentus; fake Android/GATT/storage/preview.')
 
 
 if __name__ == '__main__':

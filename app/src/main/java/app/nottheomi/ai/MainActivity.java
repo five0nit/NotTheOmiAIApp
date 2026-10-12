@@ -16,8 +16,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -33,15 +31,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /** One local-first UI, no accounts, servers, trackers or hidden destinations. */
 public final class MainActivity extends Activity {
     private static final int PAPER=0xfff5f2eb, INK=0xff191c18, MUTED=0xff646a61, LINE=0xffdadcd2, ACCENT=0xffbd432b;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final ExecutorService io=Executors.newSingleThreadExecutor();
-    private LinearLayout page, content, libraryRows, historyRows;
-    private TextView stateLabel,timer,preview,storageLabel,connectionLabel,liveHint,finalText,finalHint,historyHint;
-    private Button recordButton, sourceButton, deviceButton;
+    private LinearLayout page, content, historyRows;
+    private TextView stateLabel,timer,preview,connectionLabel,liveHint,finalText,finalHint,historyHint,captureNote;
+    private Button recordButton, sourceButton, deviceButton, disconnectButton;
     private boolean resumeStart, wasActive;
     private int historyGeneration;
     private long displayRevision=-1;
@@ -49,8 +48,11 @@ public final class MainActivity extends Activity {
     private Meter meter;
     private LocalPlayback playback;
     private boolean library, resumed, destroyed, ready, startPending;
-    private int viewGeneration, searchGeneration;
-    private String query="", selectedId, exportId, exportKind;
+    private int viewGeneration;
+    private String selectedId, pendingRestoredDetail, exportId, exportKind;
+    private LibraryBrowser.State libraryState = new LibraryBrowser.State();
+    private LibraryBrowser libraryBrowser;
+    private Future<?> detailLoad;
     private long refinementRevision = -1;
     private TextView detailTranscript, detailRefinement;
     private Button detailRetry;
@@ -59,19 +61,44 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); playback=new LocalPlayback(this);
-        if(saved!=null){library=saved.getBoolean("library");query=saved.getString("query","");exportId=saved.getString("exportId");exportKind=saved.getString("exportKind");}
+        if(saved!=null){library=saved.getBoolean("library");libraryState=LibraryBrowser.State.restore(saved.getBundle("libraryState"));exportId=saved.getString("exportId");exportKind=saved.getString("exportKind");}
         draw();
+        // A pause invalidates read callbacks, not the navigation saved by Android.
+        pendingRestoredDetail=saved==null?null:saved.getString("selectedId");
         io.execute(() -> {
             try { if(!captureActive())Recordings.get(this).recoverInterrupted();
                 RefinementJobService.schedule(this);
-                main.post(() -> {if(destroyed)return;ready=true;if(library)loadLibrary();else{refreshCapture();loadHomeHistory();}resumeStart();});
+                main.post(this::libraryReady);
             } catch(Exception error){main.post(() -> error("Private library could not be opened. No files were deleted. Close and reopen the app."));}
         });
     }
-    @Override protected void onResume(){super.onResume();resumed=true;main.removeCallbacks(ticker);main.post(ticker);if(ready){if(library)loadLibrary();else loadHomeHistory();}main.post(this::resumeStart);}
-    @Override protected void onPause(){resumed=false;main.removeCallbacks(ticker);playback.stop();super.onPause();}
-    @Override protected void onDestroy(){destroyed=true;viewGeneration++;playback.stop();io.shutdown();main.removeCallbacks(ticker);super.onDestroy();}
-    @Override protected void onSaveInstanceState(Bundle out){out.putBoolean("library",library);out.putString("query",query);out.putString("exportId",exportId);out.putString("exportKind",exportKind);super.onSaveInstanceState(out);}
+    private void libraryReady(){
+        if(destroyed)return;
+        ready=true;
+        if(pendingRestoredDetail!=null&&selectedId==null)detail(pendingRestoredDetail);
+        else if(library)loadLibrary();
+        else{refreshCapture();loadHomeHistory();}
+        resumeStart();
+    }
+    @Override protected void onResume(){
+        super.onResume();ButtonActions.onResume(this);resumed=true;main.removeCallbacks(ticker);main.post(ticker);
+        if(ready){
+            if(selectedId!=null){
+                if(detailTranscript==null)detail(selectedId);
+                else{
+                    // onPause may have discarded the callback for a consumed revision.
+                    refinementRevision=-1;
+                    refreshRefinement();
+                }
+            }else if(library)loadLibrary();
+            else loadHomeHistory();
+        }
+        main.post(this::resumeStart);
+    }
+    @Override protected void onPause(){ButtonActions.onPause(this);resumed=false;viewGeneration++;if(libraryBrowser!=null)libraryBrowser.pause();if(detailLoad!=null){detailLoad.cancel(true);detailLoad=null;}main.removeCallbacks(ticker);playback.stop();super.onPause();}
+    @Override protected void onDestroy(){destroyed=true;viewGeneration++;closeLibrary();playback.stop();io.shutdown();main.removeCallbacks(ticker);super.onDestroy();}
+    @Override protected void onSaveInstanceState(Bundle out){if(libraryBrowser!=null)libraryBrowser.rememberScroll();out.putBoolean("library",library);out.putBundle("libraryState",libraryState.save());out.putString("selectedId",selectedId!=null?selectedId:pendingRestoredDetail);out.putString("exportId",exportId);out.putString("exportKind",exportKind);super.onSaveInstanceState(out);}
+    private void closeLibrary(){if(libraryBrowser!=null){libraryBrowser.close();libraryBrowser=null;}}
 
     private int dp(float value){return (int)(getResources().getDisplayMetrics().density*value+.5f);}
     private GradientDrawable box(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
@@ -83,7 +110,7 @@ public final class MainActivity extends Activity {
     private LinearLayout card(int color){LinearLayout c=column();c.setBackground(box(color,20));c.setPadding(dp(20),dp(20),dp(20),dp(20));return c;}
 
     private void draw(){
-        viewGeneration++;selectedId=null;playback.stop();
+        viewGeneration++;closeLibrary();if(detailLoad!=null){detailLoad.cancel(true);detailLoad=null;}pendingRestoredDetail=null;selectedId=null;detailTranscript=null;detailRefinement=null;detailRetry=null;playback.stop();
         page=column();page.setBackgroundColor(PAPER);page.setPadding(dp(22),dp(14),dp(22),dp(12));setContentView(page);
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
         TextView brand=text("NotTheOmiAIApp",23,INK,true);top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
@@ -98,7 +125,7 @@ public final class MainActivity extends Activity {
     private static boolean captureActive(){return CaptureService.active||OmiCaptureService.active;}
     private boolean omiSource(){return OmiCaptureService.active||(!CaptureService.active&&!"phone".equals(OmiSettingsActivity.preferences(this).getString("source","omi")));}
     private String readyText(){
-        return omiSource()?"Connect your Omi. Live words appear here as you speak.":"Start the phone microphone to see live words here.";
+        return omiSource()?(OmiCaptureService.controlsActive?"Button-only mode. No audio saved. Start recording here or with your configured Omi button.":"Connect your Omi. Live words appear here as you speak."):"Start the phone microphone to see live words here.";
     }
     private void chooseSource(){
         if(captureActive()||startPending)return;
@@ -119,7 +146,9 @@ public final class MainActivity extends Activity {
         stateLabel=text("Opening private library…",14,0xffd2dcc7,false);capture.addView(stateLabel);
         meter=new Meter();capture.addView(meter,new LinearLayout.LayoutParams(-1,dp(20)));
         recordButton=button("Connect Omi",true,v->toggleRecording());recordButton.setBackground(box(ACCENT,14));addButton(capture,recordButton);
-        capture.addView(text(omiSource()?"Connecting starts recording automatically. Stop saves locally.":"Phone microphone fallback. Stop saves locally.",12,0xffc3cbb8,false));content.addView(capture);
+        captureNote=text("",12,0xffc3cbb8,false);capture.addView(captureNote);content.addView(capture);
+        disconnectButton=button("Disconnect Omi",false,v->{OmiCaptureService.requestDisconnect();refreshCapture();});
+        addButton(content,disconnectButton);
         deviceButton=button("Omi device & controls",false,v->startActivity(new Intent(this,OmiSettingsActivity.class)));
         addButton(content,deviceButton);gap(content,14);
         content.addView(text("LIVE TRANSCRIPTION",11,MUTED,true));
@@ -142,25 +171,31 @@ public final class MainActivity extends Activity {
     private void refreshCapture(){
         if(library||selectedId!=null||timer==null)return;
         boolean active=captureActive(), omi=omiSource();
-        String state=omi?OmiCaptureService.state:CaptureService.state;
+        boolean controls=OmiCaptureService.controlsActive&&!OmiCaptureService.active;
+        String state=omi?(controls?OmiCaptureService.controlsState:OmiCaptureService.state):CaptureService.state;
         if(active)startPending=false;
         long started=omi?OmiCaptureService.startedAt:CaptureService.startedAt;
         setText(timer,duration(active&&started>0?SystemClock.elapsedRealtime()-started:0));
         sourceButton.setEnabled(!active&&!startPending);
-        deviceButton.setVisibility(omi?View.VISIBLE:View.GONE);deviceButton.setEnabled(!startPending);
+        deviceButton.setVisibility(omi||controls?View.VISIBLE:View.GONE);deviceButton.setEnabled(!startPending);
+        disconnectButton.setVisibility(OmiCaptureService.active||controls?View.VISIBLE:View.GONE);
+        disconnectButton.setEnabled(!startPending);
+        setText(disconnectButton,OmiCaptureService.active?"Disconnect Omi & save":"Disconnect Omi");
+        setText(captureNote,omi?"Stop & save keeps Omi buttons connected; no audio saved while stopped. Disconnect Omi ends the connection.":"Phone microphone fallback. Stop saves locally.");
         String name=OmiSettingsActivity.preferences(this).getString("name","Omi wearable");
         setText(connectionLabel,omi?(name.isEmpty()?"OMI WEARABLE":name)+(active&&OmiCaptureService.battery>=0?" · "+OmiCaptureService.battery+"%":""):"PHONE MICROPHONE");
         setText(stateLabel,!ready?"Opening private library…":startPending?(omi?"Connecting…":"Starting…"):state==null||state.isEmpty()||"Stopped".equals(state)?(omi?"Ready to connect · auto-record on connection":"Phone microphone is off"):state);
         recordButton.setEnabled(ready&&!startPending);
-        setText(recordButton,active?(omi?(started>0?"Disconnect & save":"Cancel connection"):"■  Stop & save"):(omi?"Connect Omi":"●  Start recording"));
+        setText(recordButton,active?(omi?(started>0?"■  Stop & save":"Cancel connection"):"■  Stop & save"):(omi?(controls?"●  Start recording":"Connect Omi"):"●  Start recording"));
         LiveTranscript.Snapshot display=(omi?OmiCaptureService.display:CaptureService.display).snapshot();
         if(display.revision!=displayRevision||omi!=displayWasOmi){
             displayRevision=display.revision;displayWasOmi=omi;
             setText(finalText,display.finalized.isEmpty()?"Finished phrases will appear here. Your complete transcript stays in the library.":display.finalized);
         }
         setText(finalHint,display.finalized.isEmpty()?"This session · finished phrases are saved as you speak":(active?"This session":"Last session")+" · recent phrases · full transcript in Library");
-        setText(preview,active?(display.partial.isEmpty()?(started>0?"Listening…":omi?"Waiting for Omi audio…":"Preparing offline speech…"):display.partial):readyText());
-        setText(liveHint,active?"LIVE DRAFT · Vosk · English · offline":"Fast offline draft · Whisper refines after saving");
+        boolean waiting=omi&&OmiCaptureService.waitingForOmi();
+        setText(preview,waiting?"Waiting for Omi — audio resumes automatically when it returns.":active?(display.partial.isEmpty()?(started>0?"Listening…":omi?"Waiting for Omi audio…":"Preparing offline speech…"):display.partial):readyText());
+        setText(liveHint,waiting?"AUDIO PAUSED · reconnecting · missing audio marked":active?"LIVE DRAFT · Vosk · English · offline":"Fast offline draft · Whisper refines after saving");
         meter.level=active?(omi?OmiCaptureService.level:CaptureService.level):0;meter.invalidate();
         if(wasActive&&!active&&ready)loadHomeHistory();
         wasActive=active;
@@ -188,7 +223,11 @@ public final class MainActivity extends Activity {
     private void continueStart(){resumeStart=true;if(resumed)main.post(this::resumeStart);}
     private void resumeStart(){if(!resumeStart||!resumed||!ready||destroyed)return;resumeStart=false;if(!captureActive())toggleRecording();}
     private void toggleRecording(){
-        if(captureActive()){startService(new Intent(this,OmiCaptureService.active?OmiCaptureService.class:CaptureService.class).setAction(OmiCaptureService.active?OmiCaptureService.ACTION_STOP:CaptureService.ACTION_STOP));return;}
+        if(captureActive()){
+            if(OmiCaptureService.active&&OmiCaptureService.startedAt==0)OmiCaptureService.requestDisconnect();
+            else startService(new Intent(this,OmiCaptureService.active?OmiCaptureService.class:CaptureService.class).setAction(OmiCaptureService.active?OmiCaptureService.ACTION_STOP:CaptureService.ACTION_STOP));
+            return;
+        }
         if(!ready||startPending)return;
         if(omiSource()){
             if(OmiSettingsActivity.preferences(this).getString("address","").isEmpty()){
@@ -231,29 +270,35 @@ public final class MainActivity extends Activity {
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] grants){super.onRequestPermissionsResult(code,permissions,grants);if(code==10){if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)continueStart();else error("Microphone permission is required to record. You can still browse your library.");}else if(code==11)continueStart();else if(code==12){if(OmiSettingsActivity.permitted(this))continueStart();else error("Nearby devices permission is required for Omi. Your phone microphone will not be used instead.");}}
 
     private void drawLibrary(){
-        content.addView(text("Your library",32,INK,true));
-        storageLabel=text("Kept until you delete. No sync queue.",13,MUTED,false);content.addView(storageLabel);gap(content,10);
-        EditText search=new EditText(this);search.setSingleLine(true);search.setHint("Search titles or transcripts");search.setTextSize(15);search.setTextColor(INK);search.setPadding(dp(14),dp(10),dp(14),dp(10));search.setBackground(box(0xffe5e8df,12));search.setText(query);search.setContentDescription("Search recordings");content.addView(search,new LinearLayout.LayoutParams(-1,dp(52)));
-        search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int count,int after){} public void onTextChanged(CharSequence s,int st,int before,int count){query=s.toString();final int g=++searchGeneration;main.postDelayed(()->{if(g==searchGeneration&&library)loadLibrary();},250);}public void afterTextChanged(Editable s){}});
-        gap(content,12);libraryRows=column();content.addView(libraryRows);if(ready)loadLibrary();else libraryRows.addView(text("Opening private library…",15,MUTED,false));
+        libraryBrowser=new LibraryBrowser(this,content,(ScrollView)content.getParent(),libraryState,this::detail);
+        refinementRevision=RefinementJobService.revision;
+        if(ready)loadLibrary();
     }
     private void loadLibrary(){
-        if(!library||selectedId!=null||destroyed)return;
-        final int generation=viewGeneration, search=++searchGeneration;final String term=query;
-        io.execute(()->{
-            try {Recordings db=Recordings.get(this);List<Recordings.Session> rows=db.list(term);long bytes=db.totalBytes();
-                main.post(()->{if(destroyed||!library||generation!=viewGeneration||search!=searchGeneration||selectedId!=null)return;
-                    storageLabel.setText(size(bytes)+" stored · 2 GB audio limit\nKept until you delete. Export important recordings.");
-                    libraryRows.removeAllViews();
-                    if(rows.isEmpty()){LinearLayout empty=card(0xffe9eadd);empty.addView(text(term.isEmpty()?"A little space for your thoughts.":"No matches",21,INK,true));empty.addView(text(term.isEmpty()?"Your recordings and transcripts will appear here. Start with a short voice note.":"Try a different word from the title or transcript.",15,MUTED,false));libraryRows.addView(empty);}
-                    for(Recordings.Session s:rows){LinearLayout c=card(Color.WHITE);c.addView(text(s.title,19,INK,true));c.addView(text(date(s.createdAt)+"  ·  "+duration(s.durationMs),12,MUTED,false));TextView excerpt=text(s.text.isEmpty()?"No speech transcribed":s.text,14,MUTED,false);excerpt.setMaxLines(2);c.addView(excerpt);c.addView(text(s.status.toUpperCase(Locale.ROOT),10,ACCENT,true));c.setContentDescription("Open recording "+s.title);c.setOnClickListener(v->detail(s.id));libraryRows.addView(c);gap(libraryRows,10);}
-                });
-            }catch(Exception e){main.post(()->error("Could not read the encrypted library. Your files have not been changed."));}
-        });
+        if(library&&selectedId==null&&!destroyed&&ready&&resumed&&libraryBrowser!=null)libraryBrowser.start();
     }
     private void detail(String id){
-        playback.stop();selectedId=id;final int generation=++viewGeneration;
-        io.execute(()->{try{Recordings.Session s=Recordings.get(this).find(id);main.post(()->{if(!destroyed&&generation==viewGeneration)showDetail(s);});}catch(Exception e){main.post(()->error("This recording could not be opened. No data was changed."));}});
+        pendingRestoredDetail=null;
+        playback.stop();closeLibrary();if(detailLoad!=null)detailLoad.cancel(true);
+        selectedId=id;detailTranscript=null;detailRefinement=null;detailRetry=null;
+        final int generation=++viewGeneration;
+        content.removeAllViews();
+        addButton(content,button(library?"‹  Back to library":"‹  Back to home",false,v->draw()));
+        content.addView(text("Opening saved recording…",20,INK,true));
+        ((ScrollView)content.getParent()).scrollTo(0,0);
+        if(!resumed)return; // onResume restarts an opening interrupted by a pause.
+        detailLoad=io.submit(()->{
+            try{
+                Recordings.Session s=Recordings.get(this).find(id);
+                main.post(()->{if(!destroyed&&resumed&&generation==viewGeneration&&id.equals(selectedId)){detailLoad=null;showDetail(s);}});
+            }catch(Exception e){main.post(()->{
+                if(destroyed||!resumed||generation!=viewGeneration||!id.equals(selectedId))return;
+                detailLoad=null;content.removeAllViews();
+                addButton(content,button(library?"‹  Back to library":"‹  Back to home",false,v->draw()));
+                content.addView(text("This recording could not be opened. No data was changed.",17,ACCENT,false));
+                addButton(content,button("Try opening again",false,v->detail(id)));
+            });}
+        });
     }
     private void showDetail(Recordings.Session s){
         if(s==null){selectedId=null;draw();return;}
@@ -288,8 +333,9 @@ public final class MainActivity extends Activity {
             catch(Exception failure){main.post(()->error("Whisper could not be queued. Original audio and draft were not removed."));}});
     }
     private void refreshRefinement(){
-        long revision=RefinementJobService.revision;if(!ready||destroyed||refinementRevision==revision)return;refinementRevision=revision;
-        if(selectedId==null){if(library)loadLibrary();else loadHomeHistory();return;}
+        long revision=RefinementJobService.revision;if(!ready||destroyed||!resumed||refinementRevision==revision)return;refinementRevision=revision;
+        if(selectedId==null){if(library){if(libraryBrowser!=null)libraryBrowser.offerRefresh();}else loadHomeHistory();return;}
+        if(detailTranscript==null)return;
         final String id=selectedId;final int generation=viewGeneration;
         io.execute(()->{try{Recordings.Session s=Recordings.get(this).find(id);main.post(()->{
             if(destroyed||s==null||generation!=viewGeneration||!id.equals(selectedId)||detailTranscript==null)return;
@@ -299,13 +345,12 @@ public final class MainActivity extends Activity {
     private void delete(Recordings.Session s){new AlertDialog.Builder(this).setTitle("Delete this recording?").setMessage("Permanently removes its audio and transcript from this app. Files you previously exported are not removed.").setNegativeButton("Keep",null).setPositiveButton("Delete",(d,w)->playback.stop(()->{if(destroyed)return;io.execute(()->{try{Recordings.get(this).delete(s.id);if(s.id.equals(OmiCaptureService.display.snapshot().sessionId))OmiCaptureService.display.reset(null);if(s.id.equals(CaptureService.display.snapshot().sessionId))CaptureService.display.reset(null);main.post(()->{if(!destroyed){selectedId=null;draw();}});}catch(Exception e){main.post(()->error("Deletion could not be completed. Reopen the library to check its state."));}});})).show();}
     private void confirmExport(String id,String kind){new AlertDialog.Builder(this).setTitle("Export an unencrypted copy?").setMessage("Only your chosen file will leave the private library. The destination you select may sync to a cloud service. Keep this copy somewhere you trust.").setNegativeButton("Cancel",null).setPositiveButton("Choose destination",(d,w)->{exportId=id;exportKind=kind;Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(kind.equals("wav")?"audio/wav":"text/plain").putExtra(Intent.EXTRA_TITLE,"NotTheOmiAIApp-"+id+(kind.equals("wav")?".wav":".txt"));try{startActivityForResult(intent,20);}catch(RuntimeException e){exportId=null;exportKind=null;error("No document picker is available on this phone.");}}).show();}
     @Override protected void onActivityResult(int code,int result,Intent data){super.onActivityResult(code,result,data);if(code==30){if(result==RESULT_OK)continueStart();return;}if(code!=20)return;final String id=exportId,kind=exportKind;exportId=null;exportKind=null;if(result!=RESULT_OK||data==null||data.getData()==null||id==null||kind==null)return;Uri uri=data.getData();io.execute(()->{try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IllegalStateException();if(kind.equals("wav"))Recordings.get(this).exportWav(id,out);else Recordings.get(this).exportText(id,out);out.flush();main.post(()->toast("Export saved to your chosen destination."));}catch(Exception e){main.post(()->error("Export failed. The destination may contain a partial file; remove it before retrying."));}});}
-    private void about(){new AlertDialog.Builder(this).setTitle("NotTheOmiAIApp 0.4.1").setMessage("An independent offline Omi companion, with optional phone-microphone recording. Not affiliated with Omi or Based Hardware.\n\n• No internet permission, accounts or analytics.\n• Omi BLE Opus audio and English speech recognition run on this phone (Concentus + Vosk live preview; Whisper small.en Q5_1 after saving). Live drafts update as you speak. Saved audio is refined locally while capture is idle; Android may defer background work. Reopen the app after a reboot or force-stop to resume queued work. No AI summaries yet.\n• Device settings: brightness read/write where supported, local single/double press actions while recording. No firmware update or device-storage download.\n• Audio and transcripts encrypted using this phone’s Android Keystore. Device backups and transfer are disabled.\n• Uninstalling or clearing app data destroys access. Export anything important first.\n• Storage: 2 GB audio limit, no automatic deletion. The app stops safely when storage is low.\n• Recording can continue with the screen off. Stop in the app, or in its notification when enabled. Android or Samsung battery controls can interrupt it.\n• Exports are unencrypted copies.\n\nWhisper.cpp / English model: MIT. Concentus: BSD-style. Omi protocol: MIT. Licenses included.").setNegativeButton("Close",null).setPositiveButton("Licenses",(d,w)->licenses()).show();}
+    private void about(){new AlertDialog.Builder(this).setTitle("NotTheOmiAIApp 0.4.6").setMessage("An independent offline Omi companion, with optional phone-microphone recording. Not affiliated with Omi or Based Hardware.\n\n• No internet permission, accounts or analytics.\n• Omi BLE Opus audio and English speech recognition run on this phone (Concentus + Vosk live preview; Whisper small.en Q5_1 after saving). Live drafts update as you speak. Saved audio is refined locally while capture is idle; Android may defer background work. Reopen the app after a reboot or force-stop to resume queued work. No AI summaries yet.\n• Device settings: brightness read/write where supported, local single/double press actions while recording. No firmware update or device-storage download.\n• Audio and transcripts encrypted using this phone’s Android Keystore. Device backups and transfer are disabled.\n• Uninstalling or clearing app data destroys access. Export anything important first.\n• Storage: 2 GB audio limit, no automatic deletion. The app stops safely when storage is low.\n• Recording can continue with the screen off. Stop in the app, or in its notification when enabled. Android or Samsung battery controls can interrupt it.\n• Exports are unencrypted copies.\n\nWhisper.cpp / English model: MIT. Concentus: BSD-style. Omi protocol: MIT. Licenses included.").setNegativeButton("Close",null).setPositiveButton("Licenses",(d,w)->licenses()).show();}
     private void licenses(){try{String value;try(java.io.InputStream in=getAssets().open("licenses/whisper.cpp-MIT.txt")){value=readUtf8(in);}try(java.io.InputStream in=getAssets().open("licenses/whisper-model-MIT.txt")){value+="\n\nWhisper model\n"+readUtf8(in);}for(String name:new String[]{"vosk","jna","concentus","omi"})try(java.io.InputStream in=getAssets().open("licenses/"+name+"-license.txt")){value+="\n\n"+name+"\n"+readUtf8(in);}TextView t=text(value,12,INK,false);t.setPadding(dp(20),dp(10),dp(20),dp(10));ScrollView scroll=new ScrollView(this);scroll.addView(t);new AlertDialog.Builder(this).setTitle("Open-source licenses").setView(scroll).setPositiveButton("Close",null).show();}catch(Exception e){error("License files could not be opened.");}}
     private static String readUtf8(java.io.InputStream in) throws java.io.IOException { java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return new String(out.toByteArray(),java.nio.charset.StandardCharsets.UTF_8); }
     private void error(String message){if(!destroyed&&!isFinishing())new AlertDialog.Builder(this).setTitle("Please check").setMessage(message).setPositiveButton("OK",null).show();}
     private void toast(String s){if(!destroyed)Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
     private static String duration(long millis){long sec=Math.max(0,millis/1000);return sec>=3600?String.format(Locale.ROOT,"%d:%02d:%02d",sec/3600,(sec/60)%60,sec%60):String.format(Locale.ROOT,"%02d:%02d",sec/60,sec%60);}
-    private static String size(long bytes){return String.format(Locale.ROOT,"%.1f MB",bytes/1048576.0);}
     private static String date(long time){return DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT).format(new java.util.Date(time));}
     @Override public void onBackPressed(){if(selectedId!=null){selectedId=null;draw();}else if(library){library=false;draw();}else super.onBackPressed();}
     private final class Meter extends View {

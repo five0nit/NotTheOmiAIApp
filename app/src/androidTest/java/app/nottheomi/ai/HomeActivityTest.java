@@ -24,6 +24,7 @@ public final class HomeActivityTest extends ActivityInstrumentationTestCase2<Mai
         assertTrue("Synthetic emulator only", "ranchu".equals(Build.HARDWARE)||"goldfish".equals(Build.HARDWARE));
         assertFalse(CaptureService.active);assertFalse(OmiCaptureService.active);
         OmiSettingsActivity.preferences(getInstrumentation().getTargetContext()).edit().clear().putString("source","omi").commit();
+        OmiCaptureService.controlsActive=false;OmiCaptureService.controlsState="Disconnected";
         OmiCaptureService.display.reset(null);CaptureService.display.reset(null);
         recordings=Recordings.get(getInstrumentation().getTargetContext());
         activity=getActivity();
@@ -33,7 +34,7 @@ public final class HomeActivityTest extends ActivityInstrumentationTestCase2<Mai
     }
 
     @Override protected void tearDown() throws Exception {
-        OmiCaptureService.active=false;OmiCaptureService.startedAt=0;OmiCaptureService.sessionId=null;OmiCaptureService.state="Stopped";
+        OmiCaptureService.active=false;OmiCaptureService.controlsActive=false;OmiCaptureService.controlsState="Disconnected";OmiCaptureService.startedAt=0;OmiCaptureService.sessionId=null;OmiCaptureService.state="Stopped";
         OmiCaptureService.display.reset(null);CaptureService.display.reset(null);
         if(savedId!=null){recordings.finish(savedId,"saved");recordings.delete(savedId);}
         super.tearDown();
@@ -59,7 +60,8 @@ public final class HomeActivityTest extends ActivityInstrumentationTestCase2<Mai
         recordings.appendText(savedId,"Synthetic finished sentence.");OmiCaptureService.display.finalized("Synthetic finished sentence.");
         OmiCaptureService.display.partial("synthetic changing preview");
         OmiCaptureService.active=true;OmiCaptureService.sessionId=savedId;OmiCaptureService.startedAt=android.os.SystemClock.elapsedRealtime();
-        call("refreshCapture");assertEquals("Disconnect & save",text("recordButton"));
+        call("refreshCapture");assertEquals("■  Stop & save",text("recordButton"));
+        assertEquals("Disconnect Omi & save",text("disconnectButton"));
         assertEquals("synthetic changing preview",text("preview"));assertTrue(text("finalText").contains("Synthetic finished sentence."));
         assertFalse(text("finalText").contains("changing preview"));assertFalse(((Button)field("sourceButton")).isEnabled());
         OmiCaptureService.display.partial("");call("refreshCapture");assertEquals("Listening…",text("preview"));
@@ -78,6 +80,32 @@ public final class HomeActivityTest extends ActivityInstrumentationTestCase2<Mai
         OmiCaptureService.active=true;OmiCaptureService.startedAt=0;OmiCaptureService.state="Connecting to selected Omi…";
         call("refreshCapture");assertEquals("Cancel connection",text("recordButton"));assertEquals("00:00",text("timer"));
         assertEquals("Waiting for Omi audio…",text("preview"));
+    }
+
+    public void testButtonOnlyStandbyHasNoRecordingTimerAndSeparateDisconnect() throws Exception {
+        OmiCaptureService.active=false;OmiCaptureService.controlsActive=true;
+        OmiCaptureService.controlsState="Omi buttons connected · no audio saved";
+        int before=recordings.recent(100).size();
+        call("refreshCapture");
+        assertEquals("●  Start recording",text("recordButton"));
+        assertEquals("Disconnect Omi",text("disconnectButton"));
+        assertEquals(android.view.View.VISIBLE,((Button)field("disconnectButton")).getVisibility());
+        assertEquals("00:00",text("timer"));assertTrue(text("preview").contains("No audio saved"));
+        assertTrue(text("stateLabel").contains("buttons connected"));
+        assertFalse(CaptureService.active);assertFalse(OmiCaptureService.active);
+        assertEquals(before,recordings.recent(100).size());
+    }
+
+    public void testStopToStandbyKeepsFinalLogAndShowsIdleControls() throws Exception {
+        OmiCaptureService.display.reset("synthetic-standby");OmiCaptureService.display.finalized("Synthetic retained standby final.");
+        OmiCaptureService.active=true;call("refreshCapture");
+        OmiCaptureService.active=false;OmiCaptureService.controlsActive=true;
+        OmiCaptureService.controlsState="Omi buttons connected · no audio saved";
+        OmiCaptureService.display.partial("");call("refreshCapture");
+        assertEquals("●  Start recording",text("recordButton"));
+        assertTrue(text("finalText").contains("Synthetic retained standby final."));
+        assertTrue(text("finalHint").contains("Last session"));
+        assertTrue(text("captureNote").contains("Disconnect Omi ends the connection"));
     }
 
     public void testPickerCancellationDoesNotStartEitherService() throws Exception {

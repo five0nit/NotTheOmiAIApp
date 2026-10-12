@@ -35,7 +35,11 @@ import java.util.concurrent.TimeUnit;
 public final class OmiCaptureService extends Service {
     public static final String ACTION_START = "app.nottheomi.ai.OMI_START";
     public static final String ACTION_STOP = "app.nottheomi.ai.OMI_STOP";
+    public static final String ACTION_CONTROLS = "app.nottheomi.ai.OMI_CONTROLS";
+    public static final String ACTION_DISCONNECT = "app.nottheomi.ai.OMI_DISCONNECT";
     public static volatile boolean active;
+    public static volatile boolean controlsActive;
+    public static volatile String controlsState = "Disconnected";
     public static volatile String state = "Stopped", sessionId, partial = "";
     public static final LiveTranscript display = new LiveTranscript();
     public static volatile String transport = "Disconnected", lastButton = "No press received";
@@ -64,6 +68,7 @@ public final class OmiCaptureService extends Service {
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile boolean cancelled, receivedPcm, recovering, hadGap;
     private volatile long lastPcmAt;
+    private volatile long lastArchivedAt = -1, archivedSamples;
     private volatile long stopDeadlineNanos;
     private volatile String fatalReason, speechIssue, failureMarker;
     private volatile Thread transportWorker;
@@ -71,7 +76,9 @@ public final class OmiCaptureService extends Service {
     private boolean connectEnqueued;
     private boolean foreground;
     private String lastNotificationState;
-    private String singleAction, doubleAction;
+    private String selectedAddress;
+    private boolean switching, disconnectRequested, returnToControls;
+    private long transportEpoch;
     private Thread worker;
     private OmiBle ble;
     private OmiPcmQueue incoming;
@@ -90,65 +97,74 @@ public final class OmiCaptureService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         synchronized (LIFECYCLE) {
+            if (ACTION_DISCONNECT.equals(action)) {
+                if (owner != null) owner.disconnect();
+                else stopSelf(startId);
+                return START_NOT_STICKY;
+            }
             if (ACTION_STOP.equals(action)) {
                 if (owner != null) owner.stopCapture(null, null);
                 else stopSelf(startId);
                 return START_NOT_STICKY;
             }
-            if (!ACTION_START.equals(action)) {
-                if (!active) stopSelf(startId);
+            if (!ACTION_START.equals(action) && !ACTION_CONTROLS.equals(action)) {
+                if (owner == null) stopSelf(startId);
                 return START_NOT_STICKY;
             }
-            if (active) return START_NOT_STICKY;
-            if (CaptureService.active) return reject(startId, "Stop the phone microphone recording first");
-            if (!hasBluetoothPermissions()) return reject(startId, "Bluetooth permissions are required — nothing recorded");
-            if (!notificationsVisible()) return reject(startId, "Enable recording notifications before starting — nothing recorded");
-            SharedPreferences prefs = getSharedPreferences("omi", MODE_PRIVATE);
-            String address = intent.getStringExtra("address");
-            if (address == null) address = prefs.getString("address", "");
-            if (!BluetoothAdapter.checkBluetoothAddress(address)) {
-                return reject(startId, "Select a valid Omi device first — nothing recorded");
+            if (active || switching) return START_NOT_STICKY;
+            if (controlsActive) {
+                if (ACTION_START.equals(action)) closeControls(true);
+                return START_NOT_STICKY;
             }
-            singleAction = buttonAction(prefs.getString("single_action", "bookmark"));
-            doubleAction = buttonAction(prefs.getString("double_action", "stop"));
-            owner = this;
-            active = true;
-            RefinementJobService.pauseForCapture();
-            cancelled = receivedPcm = recovering = hadGap = false;
-            lastPcmAt = 0;
-            stopDeadlineNanos = 0;
-            fatalReason = speechIssue = failureMarker = null;
-            transportWorker = null;
-            transportThreadKnown = new CountDownLatch(1);
-            connectEnqueued = false;
-            sessionId = null; startedAt = 0; level = 0; partial = "";
-            display.reset(null);
-            battery = -1; ledState = unknownLed(); lastButton = "No press received";
-            transport = "Disconnected";
-            incoming = new OmiPcmQueue();
-            state = "Preparing offline speech model…";
-            final String selected = address;
-            try {
-                if (Build.VERSION.SDK_INT >= 29) {
-                    startForeground(NOTIFICATION_ID, notification(),
-                            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
-                } else startForeground(NOTIFICATION_ID, notification());
-                foreground = true;
-                lastNotificationState = state;
-                worker = new Thread(() -> capture(selected), "omi-capture");
-                worker.start();
-            } catch (RuntimeException | LinkageError failure) {
-                state = "Omi capture could not start — open the app and check Bluetooth/notification access";
-                endForeground(); stopSelf(); worker = null; owner = null; active = false;
-                RefinementJobService.schedule(this);
-            }
+            return startSession(action, intent.getStringExtra("address"));
+        }
+    }
+
+    /** Called under LIFECYCLE, including internal transitions without Android start IDs. */
+    private int startSession(String action, String address) {
+        if (CaptureService.active && ACTION_START.equals(action)) return reject("Stop the phone microphone recording first");
+        if (!hasBluetoothPermissions()) return reject("Bluetooth permissions are required — nothing recorded");
+        if (!notificationsVisible()) return reject("Enable recording notifications before starting — nothing recorded");
+        if (address == null) address = getSharedPreferences("omi", MODE_PRIVATE).getString("address", "");
+        if (!BluetoothAdapter.checkBluetoothAddress(address)) return reject("Select a valid Omi device first — nothing recorded");
+        selectedAddress = address;
+        disconnectRequested = returnToControls = false;
+        owner = this;
+        if (ACTION_CONTROLS.equals(action)) {
+            startControls();
+            return START_NOT_STICKY;
+        }
+        active = true;
+        RefinementJobService.pauseForCapture();
+        cancelled = receivedPcm = recovering = hadGap = false;
+        lastPcmAt = 0;
+        stopDeadlineNanos = 0;
+        fatalReason = speechIssue = failureMarker = null;
+        transportWorker = null;
+        transportThreadKnown = new CountDownLatch(1);
+        connectEnqueued = false;
+        sessionId = null; startedAt = 0; level = 0; partial = "";
+        display.reset(null);
+        battery = -1; ledState = unknownLed(); lastButton = "No press received";
+        transport = "Disconnected";
+        incoming = new OmiPcmQueue();
+        state = "Preparing offline speech model…";
+        final String selected = address;
+        try {
+            ensureForeground();
+            worker = new Thread(() -> capture(selected), "omi-capture");
+            worker.start();
+        } catch (RuntimeException | LinkageError failure) {
+            state = "Omi capture could not start — open the app and check Bluetooth/notification access";
+            endForeground(); stopSelf(); worker = null; owner = null; active = false;
+            RefinementJobService.schedule(this);
         }
         return START_NOT_STICKY;
     }
 
-    private int reject(int startId, String reason) {
+    private int reject(String reason) {
         state = "Stopped — " + reason;
-        stopSelf(startId);
+        finishDisconnected();
         return START_NOT_STICKY;
     }
 
@@ -171,16 +187,100 @@ public final class OmiCaptureService extends Service {
                 && (channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE);
     }
 
-    private static String buttonAction(String value) {
-        return "bookmark".equals(value) || "stop".equals(value) ? value : "ignore";
+    private void ensureForeground() {
+        if (foreground) { updateNotification(); return; }
+        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+        else startForeground(NOTIFICATION_ID, notification());
+        foreground = true;
+        lastNotificationState = notificationText();
+    }
+
+    /** No archive, recognizer, PCM queue or capture wake lock exists in standby. */
+    private void startControls() {
+        controlsActive = true; cancelled = true;
+        incoming = null; startedAt = 0; level = 0;
+        controlsState = "Connecting buttons — no audio recorded";
+        try {
+            ensureForeground();
+            ble = new OmiBle(this, listener(++transportEpoch, true));
+            ble.connectControls(selectedAddress);
+        } catch (RuntimeException | LinkageError failure) {
+            controlsState = "Button connection unavailable";
+            disconnect();
+        }
+    }
+
+    private void disconnect() {
+        disconnectRequested = true; returnToControls = false;
+        if (active) stopCapture(null, null);
+        else if (controlsActive) closeControls(false);
+        else if (!switching) finishDisconnected();
+    }
+
+    /** A native close callback precedes worker exit. Join off-main before reuse. */
+    private void closeControls(boolean startRecording) {
+        if (!controlsActive || switching) return;
+        controlsActive = false;
+        controlsState = startRecording ? "Preparing recording…" : "Disconnecting…";
+        switching = true;
+        long epoch = ++transportEpoch;
+        OmiBle closing = ble;
+        Runnable complete = () -> {
+            Thread closedOn = Thread.currentThread();
+            new Thread(() -> {
+                boolean interrupted = false;
+                if (closedOn.getName().equals("OmiBle")) {
+                    while (closedOn.isAlive()) {
+                        try { closedOn.join(); } catch (InterruptedException e) { interrupted = true; }
+                    }
+                }
+                final boolean failed = interrupted;
+                main.post(() -> {
+                    synchronized (LIFECYCLE) {
+                        if (owner != this || transportEpoch != epoch) return;
+                        switching = false; ble = null;
+                        if (startRecording && !disconnectRequested && !failed) {
+                            startSession(ACTION_START, selectedAddress);
+                        } else finishDisconnected();
+                    }
+                });
+            }, "omi-controls-close").start();
+        };
+        if (closing != null) closing.stop(complete); else complete.run();
+    }
+
+    private void finishDisconnected() {
+        controlsActive = false; controlsState = "Disconnected";
+        transport = "Disconnected"; battery = -1; ledState = unknownLed();
+        ble = null; owner = null;
+        endForeground(); stopSelf();
     }
 
     private static OmiBle.LedState unknownLed() {
         return new OmiBle.LedState(false, false, -1, "LED brightness unknown; start an explicit Omi recording to read it");
     }
 
+    public static boolean waitingForOmi() {
+        synchronized (LIFECYCLE) { return owner != null && active && !owner.cancelled && owner.recovering; }
+    }
+    @Override protected void dump(java.io.FileDescriptor fd, java.io.PrintWriter out, String[] args) {
+        // Read-only counters only; no database, audio, text, device identifiers,
+        // exception strings or recording IDs. Never waits on BLE/ASR workers.
+        long now = SystemClock.elapsedRealtime(), accepted = lastPcmAt, written = lastArchivedAt;
+        out.println("omi_capture_snapshot=approximate active=" + (owner == this && active)
+            + " cancelled=" + cancelled + " waiting=" + recovering + " received_pcm=" + receivedPcm
+            + " accepted_pcm_age_ms=" + (!receivedPcm ? -1 : Math.max(0, now-accepted))
+            + " archived_samples=" + archivedSamples
+            + " archive_write_age_ms=" + (written < 0 ? -1 : Math.max(0, now-written)));
+        OmiBle currentBle = ble;
+        if (currentBle != null) out.println(currentBle.diagnostics());
+    }
     public static void requestStopCapture() {
         synchronized (LIFECYCLE) { if (owner != null) owner.stopCapture(null, null); }
+    }
+    public static void requestDisconnect() {
+        synchronized (LIFECYCLE) { if (owner != null) owner.disconnect(); }
     }
     public static void readLedBrightness() {
         synchronized (LIFECYCLE) {
@@ -193,16 +293,22 @@ public final class OmiCaptureService extends Service {
         }
     }
     @Override public IBinder onBind(Intent intent) { return null; }
-    @Override public void onDestroy() { stopCapture(null, null); super.onDestroy(); }
+    @Override public void onDestroy() { synchronized (LIFECYCLE) { disconnect(); } super.onDestroy(); }
 
     /** Stop is a FIFO terminal boundary, not an interrupt of an encrypted commit. */
     private void stopCapture(String reason, String marker) {
         synchronized (LIFECYCLE) {
-            if (owner != this || !active) return;
+            if (owner != this) return;
+            if (!active) {
+                if (switching) { disconnectRequested = true; returnToControls = false; }
+                return;
+            }
             if (reason != null && fatalReason == null) fatalReason = reason;
+            if (fatalReason != null) returnToControls = false;
             // Speech/storage failure can arrive after normal Stop's terminal.
             if (marker != null) failureMarker = marker;
             if (cancelled) return;
+            returnToControls = receivedPcm && fatalReason == null && !disconnectRequested;
             cancelled = true;
             stopDeadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(ASR_STOP_DRAIN_MS);
             publishPartial("");
@@ -217,11 +323,13 @@ public final class OmiCaptureService extends Service {
 
     private boolean listening() { return owner == this && active && !cancelled && foreground; }
 
-    private final OmiBle.Listener listener = new OmiBle.Listener() {
+    private OmiBle.Listener listener(long epoch, boolean controls) { return new OmiBle.Listener() {
+        private boolean current() { return owner == OmiCaptureService.this && epoch == transportEpoch; }
+        private boolean accepting() { return current() && (controls ? controlsActive : listening()); }
         @Override public void onDevice(String address, String name) { /* UI owns selection. */ }
         @Override public void onPcm(short[] samples) {
             synchronized (LIFECYCLE) {
-                if (!listening()) return;
+                if (controls || !accepting()) return;
                 if (!incoming.offer(samples)) {
                     stopCapture("Omi audio queue overflow or invalid PCM; earlier audio retained", GAP_MARKER);
                     return;
@@ -242,28 +350,28 @@ public final class OmiCaptureService extends Service {
         @Override public void onGap() {
             // Every gap, including final stopInternal, runs on OmiBle's FIFO.
             // Remember it even after cancellation to JOIN actual transport exit.
-            transportWorker = Thread.currentThread();
-            transportThreadKnown.countDown();
             synchronized (LIFECYCLE) {
-                if (!listening()) return;
+                if (controls || !current()) return;
+                transportWorker = Thread.currentThread();
+                transportThreadKnown.countDown();
+                if (!accepting()) return;
                 // Reset, packet loss and reconnect all use this callback. Initial
                 // resets lost no audio. Coalesce repeated gaps until real PCM
                 // returns; retain an ordered speech-reset marker, not silent splice.
-                if (receivedPcm && !recovering) {
-                    if (!incoming.bookmark(RECOVERY_MARKER)) {
-                        stopCapture("Omi gap marker queue overflow; earlier audio retained", GAP_MARKER);
-                        return;
-                    }
-                    recovering = hadGap = true;
-                    level = 0;
-                    publishPartial("");
-                    setProgress("Recovering Omi audio — missing audio marked; Stop cancels retry");
-                }
+                beginRecovery();
             }
         }
         @Override public void onStatus(String value) {
             synchronized (LIFECYCLE) {
-                if (!listening()) return;
+                if (!accepting()) return;
+                if (controls) {
+                    transport = value;
+                    controlsState = value + " · no audio recorded";
+                    updateNotification();
+                    if (value.contains("controls disconnected") || value.startsWith("Invalid selected Bluetooth address"))
+                        main.post(() -> { synchronized (LIFECYCLE) { if (accepting()) disconnect(); } });
+                    return;
+                }
                 // Transport diagnostics cannot claim this service has ASR running.
                 transport = value.replace("local transcription active", "PCM arriving")
                         .replace("incomplete task discarded", "audio gap marked; waiting for valid audio");
@@ -275,24 +383,60 @@ public final class OmiCaptureService extends Service {
         }
         @Override public void onButton(int event) {
             synchronized (LIFECYCLE) {
-                // Verified ButtonEvent: SINGLE=1, DOUBLE=2. LONG=3/PRESS=4/
-                // RELEASE=5 are firmware-reserved and never start or stop capture.
-                if (!listening() || !receivedPcm || (event != 1 && event != 2)) return;
-                String action = event == 1 ? singleAction : doubleAction;
+                if (accepting() && ble != null) onButton(event, ble.connectionGeneration());
+            }
+        }
+        @Override public void onButton(int event, long generation) {
+            synchronized (LIFECYCLE) {
+                // LONG/PRESS/RELEASE remain firmware-reserved.
+                if (!accepting() || (event != 1 && event != 2)) return;
+                OmiBle source = ble;
+                if (source == null || generation != source.connectionGeneration()) return;
+                String action = ButtonActions.action(OmiCaptureService.this, event);
+                // Preparation is cancelled explicitly in the UI; legacy capture
+                // gestures arm only after actual PCM. Media stays independent.
+                if (!controls && !receivedPcm && ("bookmark".equals(action)
+                        || "stop".equals(action) || "toggle".equals(action))) return;
                 lastButton = (event == 1 ? "Single" : "Double") + " press — " + action;
-                if ("stop".equals(action)) stopCapture(null, null);
-                else if ("bookmark".equals(action) && !incoming.bookmark(BOOKMARK)) {
-                    stopCapture("Omi control queue overflow; earlier audio retained", GAP_MARKER);
+                // Archive controls share the PCM FIFO; UI/media work may use main.
+                if (!controls && ("stop".equals(action) || "toggle".equals(action))) {
+                    stopCapture(null, null); return;
                 }
+                if (!controls && "bookmark".equals(action)) {
+                    if (receivedPcm && !incoming.bookmark(BOOKMARK))
+                        stopCapture("Omi control queue overflow; earlier audio retained", GAP_MARKER);
+                    return;
+                }
+                main.post(() -> {
+                    synchronized (LIFECYCLE) {
+                        if (!accepting() || source != ble || generation != source.connectionGeneration()) return;
+                        if (ButtonActions.isMediaAction(action)) lastButton = ButtonActions.dispatchMedia(OmiCaptureService.this, event);
+                        else if ("shortcut".equals(action)) lastButton = ButtonActions.launchShortcut(OmiCaptureService.this, event);
+                        else if (controls && ("start".equals(action) || "toggle".equals(action))) closeControls(true);
+                    }
+                });
             }
         }
         @Override public void onLedState(OmiBle.LedState value) {
-            synchronized (LIFECYCLE) { if (listening()) ledState = value; }
+            synchronized (LIFECYCLE) { if (accepting()) ledState = value; }
         }
         @Override public void onBattery(int percent) {
-            synchronized (LIFECYCLE) { if (listening()) battery = percent >= 0 && percent <= 100 ? percent : -1; }
+            synchronized (LIFECYCLE) { if (accepting()) battery = percent >= 0 && percent <= 100 ? percent : -1; }
         }
-    };
+    }; }
+
+    /** Called under LIFECYCLE; one gap per missing-audio episode, not per retry. */
+    private void beginRecovery() {
+        if (!listening() || !receivedPcm || recovering) return;
+        if (!incoming.bookmark(RECOVERY_MARKER)) {
+            stopCapture("Omi gap marker queue overflow; earlier audio retained", GAP_MARKER);
+            return;
+        }
+        recovering = hadGap = true;
+        level = 0;
+        publishPartial("");
+        setProgress("Waiting for Omi — audio paused; reconnecting automatically; Stop cancels retry");
+    }
 
     private void capture(String address) {
         PowerManager.WakeLock wakeLock = null;
@@ -356,7 +500,7 @@ public final class OmiCaptureService extends Service {
                     return;
                 }
                 // Stop shares this exact monitor: cancelled preparation cannot connect.
-                ble = new OmiBle(this, listener);
+                ble = new OmiBle(this, listener(++transportEpoch, false));
                 setProgress("Connecting to Omi — waiting for audio…");
                 ble.connect(address);
                 connectEnqueued = true;
@@ -376,13 +520,14 @@ public final class OmiCaptureService extends Service {
                     }
                     lastPermissionCheck = now;
                 }
-                // Fence the deadline against a concurrent PCM callback. Only
-                // accepted decoded PCM extends recovery, never status/traffic.
+                // Only initial startup expires. Once real PCM established this
+                // explicit session, absence means waiting, not implicit Stop.
+                // Fence against concurrent PCM; status/battery cannot resume it.
                 synchronized (LIFECYCLE) {
                     if (!cancelled && !receivedPcm && now - connectedAt >= STARTUP_TIMEOUT_MS) {
                         stopCapture("Omi startup timed out without audio", GAP_MARKER);
                     } else if (!cancelled && receivedPcm && now - lastPcmAt >= STARTUP_TIMEOUT_MS) {
-                        stopCapture("Omi recovery timed out without audio; earlier audio retained", GAP_MARKER);
+                        beginRecovery();
                     }
                 }
                 OmiPcmQueue.Event event = incoming.pollBatch(200);
@@ -427,6 +572,8 @@ public final class OmiCaptureService extends Service {
                             // Creating an archive segment is not a capture restart.
                         }
                         recordings.appendAudio(id, event.pcm, event.pcm.length);
+                        archivedSamples += event.pcm.length / 2;
+                        lastArchivedAt = SystemClock.elapsedRealtime();
                         recorded = true;
                         level = recovering ? 0 : rms(event.pcm);
                         if (speech != null) speech.offerAudio(event.pcm);
@@ -513,14 +660,14 @@ public final class OmiCaptureService extends Service {
             main.post(() -> {
                 synchronized (LIFECYCLE) {
                     if (owner != this) return;
-                    state = finalState; transport = "Disconnected";
-                    battery = -1; ledState = unknownLed();
-                    endForeground(); stopSelf(); ble = null; worker = null;
-                    owner = null;
+                    state = finalState;
+                    ble = null; worker = null;
                     // Last: native speech, archive commits/finalization and wake lock
                     // are finished before deletion, recovery or restart sees idle.
                     active = false;
                     RefinementJobService.schedule(this);
+                    if (returnToControls && fatalReason == null && !disconnectRequested) startControls();
+                    else finishDisconnected();
                 }
             });
         }
@@ -583,14 +730,14 @@ public final class OmiCaptureService extends Service {
     }
 
     private Notification notification() {
-        Intent stop = new Intent(this, OmiCaptureService.class).setAction(ACTION_STOP);
+        Intent stop = new Intent(this, OmiCaptureService.class).setAction(controlsActive ? ACTION_DISCONNECT : ACTION_STOP);
         PendingIntent stopAction = PendingIntent.getService(this, 3, stop,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder builder = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_wave).setContentTitle("NotTheOmiAIApp · Omi")
-                .setContentText(state).setCategory(Notification.CATEGORY_SERVICE)
+                .setContentText(notificationText()).setCategory(Notification.CATEGORY_SERVICE)
                 .setVisibility(Notification.VISIBILITY_SECRET).setOnlyAlertOnce(true).setOngoing(true)
-                .addAction(new Notification.Action.Builder(null, "Stop", stopAction).build());
+                .addAction(new Notification.Action.Builder(null, controlsActive ? "Disconnect" : "Stop & save", stopAction).build());
         Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
         if (launch != null) builder.setContentIntent(PendingIntent.getActivity(this, 4, launch,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
@@ -599,18 +746,19 @@ public final class OmiCaptureService extends Service {
     }
     private void updateNotification() {
         synchronized (LIFECYCLE) {
-            if (!foreground || state.equals(lastNotificationState)) return;
+            if (!foreground || notificationText().equals(lastNotificationState)) return;
             // Startup diagnostics may arrive at packet frequency. Only foreground
             // text changes need Binder IPC; transport diagnostics still reach the UI.
             try {
                 getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
-                lastNotificationState = state;
+                lastNotificationState = notificationText();
             } catch (RuntimeException ignored) {
                 // Do not cache failed publication. A later update can retry; the
                 // periodic visibility/permission check still stops hidden capture.
             }
         }
     }
+    private String notificationText() { return controlsActive ? controlsState : state; }
     private void endForeground() {
         if (!foreground) return;
         try { stopForeground(STOP_FOREGROUND_REMOVE); }

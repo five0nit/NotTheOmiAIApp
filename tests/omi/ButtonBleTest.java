@@ -29,6 +29,8 @@ public final class ButtonBleTest {
     }
     static final class Sink implements OmiBle.Listener {
         final List<Integer> buttons = new ArrayList<>();
+        final List<Long> buttonGenerations = new ArrayList<>();
+        Runnable buttonHook;
         final List<String> statuses = new ArrayList<>();
         final List<OmiBle.LedState> ledStates = new ArrayList<>();
         final List<Integer> batteries = new ArrayList<>();
@@ -42,6 +44,11 @@ public final class ButtonBleTest {
         public void onStatus(String status) { statuses.add(status); if (statusHook != null) statusHook.run(); }
         public void onGap() { gaps++; }
         public void onButton(int event) { buttons.add(event); }
+        public void onButton(int event, long generation) {
+            buttonGenerations.add(generation);
+            if (buttonHook != null) buttonHook.run();
+            onButton(event);
+        }
         public void onLedState(OmiBle.LedState state) { ledStates.add(state); if (ledHook != null) ledHook.run(); }
         public void onBattery(int percent) { batteries.add(percent); if (batteryHook != null) batteryHook.run(); }
         int battery() { return batteries.get(batteries.size() - 1); }
