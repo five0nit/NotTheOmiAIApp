@@ -10,6 +10,34 @@ package app.nottheomi.ai;
  */
 final class ButtonEvent {
     static final int NONE = 0, SINGLE = 1, DOUBLE = 2;
+    // App-derived IDs outside the firmware namespace. SHAKE is reserved, unsupported.
+    static final int TRIPLE = 100, SHAKE = 101, QUADRUPLE = 102, QUINTUPLE = 103;
+    static boolean isGesture(int event) {
+        return event == SINGLE || event == DOUBLE || event == TRIPLE
+            || event == QUADRUPLE || event == QUINTUPLE;
+    }
+    static String label(int event) {
+        switch (event) {
+            case SINGLE: return "Single press";
+            case DOUBLE: return "Double press";
+            case TRIPLE: return "Triple press";
+            case QUADRUPLE: return "Four presses";
+            case QUINTUPLE: return "Five presses";
+
+            default: return "Reserved gesture";
+        }
+    }
+    static String key(int event) {
+        switch (event) {
+            case SINGLE: return "single";
+            case DOUBLE: return "double";
+            case TRIPLE: return "triple";
+            case QUADRUPLE: return "quadruple";
+            case QUINTUPLE: return "quintuple";
+
+            default: throw new IllegalArgumentException("Reserved gesture");
+        }
+    }
     private ButtonEvent() {}
 
     static int decode(byte[] value) {

@@ -16,12 +16,17 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 HERE = pathlib.Path(__file__).resolve().parent
 SOURCE = ROOT / 'app/src/main/java'
 ARCHIVE_SCENARIOS = ('startup_retry', 'sequence_loss', 'malformed_opus', 'link_recovery', 'disconnect_backoff',
-                     'recovery_before_deadline', 'recovery_long_absence', 'startup_at_deadline', 'diagnostics')
+                     'recovery_before_deadline', 'recovery_long_absence', 'startup_at_deadline', 'diagnostics',
+                     'queue_overload_recovery', 'radio_gap_capacity_overlap')
 CONTROLS_SCENARIOS = ('controls_idle', 'controls_start_exit', 'controls_toggle_exit',
                       'controls_stop_standby', 'controls_disconnect_drain', 'controls_disconnect_transition',
                       'controls_stop_backoff', 'controls_stale_gatt', 'controls_stale_listener',
                       'controls_live_buttons', 'controls_prepcm_stop', 'controls_fatal_stop')
 CONTROLS_SCENARIOS += ('controls_media', 'capture_media')
+CONTROLS_SCENARIOS += ('controls_triple', 'capture_triple', 'controls_triple_stale')
+CONTROLS_SCENARIOS += ('controls_configuration_queue', 'capture_configuration_queue')
+CONTROLS_SCENARIOS += ('controls_multi_taps', 'capture_multi_taps', 'controls_smart', 'capture_smart',
+                       'controls_pause_start', 'capture_pause_start', 'controls_flashlight', 'capture_flashlight')
 CONTROLS_SCENARIOS += ('controls_reject_phone', 'controls_reject_permission', 'controls_reject_notification',
                        'controls_stop_transition', 'controls_stop_intent_transition')
 SCENARIOS = ARCHIVE_SCENARIOS + CONTROLS_SCENARIOS
@@ -70,7 +75,7 @@ def main():
     for path in (HERE / 'stubs').rglob('*.java'):
         stubs[path.relative_to(HERE / 'stubs').as_posix()] = path.read_text()
     production = [SOURCE / 'app/nottheomi/ai' / name for name in
-        ('OmiCaptureService.java', 'OmiBle.java', 'ButtonEvent.java', 'OmiPcmQueue.java', 'LiveTranscript.java')]
+        ('OmiCaptureService.java', 'OmiBle.java', 'ButtonEvent.java', 'ButtonGestures.java', 'HapticPatterns.java', 'OmiPcmQueue.java', 'LiveTranscript.java')]
     production += sorted((SOURCE / 'org/concentus').glob('*.java'))
     with tempfile.TemporaryDirectory(prefix='omi-composition-') as tmp:
         work = pathlib.Path(tmp)

@@ -12,6 +12,7 @@ import org.concentus.OpusDecoder;
 import java.io.ByteArrayOutputStream;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 
 /** Stock Omi client; writes enable audio/button CCCs or explicitly requested LED brightness.
  * Protocol verified at omi d1fdcb4cc4fbd021eac799630e476f144e6bc18a:
@@ -29,7 +30,13 @@ public final class OmiBle {
         /** Carry this token through a UI queue; revalidate with connectionGeneration()
          * before acting. The token belongs to the notification, not dispatch time. */
         default void onButton(int event, long generation) { onButton(event); }
+        default void onButton(int event, long generation, long configuration) { onButton(event, generation); }
+        default long buttonConfigurationGeneration() { return 0; }
+        default boolean tripleEnabled() { return false; }
+        /** Highest assigned tap count; legacy listeners keep their triple opt-in. */
+        default int maxButtonTaps() { return tripleEnabled() ? 3 : 2; }
         default void onLedState(LedState state) {}
+        default void onHapticStatus(String status) {}
         /** Standard BAS percentage, 0..100; -1 means unknown/unavailable. */
         default void onBattery(int percent) {}
     }
@@ -55,6 +62,12 @@ public final class OmiBle {
     private static final UUID BATTERY_SERVICE = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb");
     private static final UUID BATTERY = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb");
     private static final long BATTERY_REFRESH_MS = 60000L;
+    // Pinned firmware src/haptic.c: acknowledged one-byte write, 1 = 100 ms.
+    private static final UUID HAPTIC_SERVICE = UUID.fromString("cab1ab95-2ea5-4f4d-bb56-874b72cfc984");
+    private static final UUID HAPTIC = UUID.fromString("cab1ab96-2ea5-4f4d-bb56-874b72cfc984");
+    private static final UUID FEATURES_SERVICE = UUID.fromString("19b10020-e8f2-537e-4f6c-d104768a1214");
+    private static final UUID FEATURES = UUID.fromString("19b10021-e8f2-537e-4f6c-d104768a1214");
+    private static final long HAPTIC_FRESH_MS = 2000;
     private static final UUID CCC = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private final Context context; private final Listener listener;
     // One queue owns GATT state, framing, decode and listener delivery. Splitting
@@ -75,6 +88,8 @@ public final class OmiBle {
     // 7 is button CCC (required in controls-only mode); 8/9/10 are LED
     // read/write/readback; 11 is BAS read;
     // 12 is the bounded settling delay before one incomplete-discovery recheck.
+    // 13/15 are first/subsequent haptic writes; 14 reserves the inter-pulse gap.
+    // 16 reads modern firmware capabilities before each pattern; legacy UUID alone is not support.
     // Audio and buttons keep flowing during optional operations.
     private Runnable deadline, audioDeadline, retryTask;
     private boolean audioReady, buttonReady, audioReceived, discoveryRechecked;
@@ -85,11 +100,21 @@ public final class OmiBle {
     // ledQuarantined gates the shared optional ATT lane, including BAS reads.
     private BluetoothGattCharacteristic batteryCharacteristic;
     private Runnable batteryPoll;
+    private BluetoothGattCharacteristic hapticCharacteristic;
+    private BluetoothGattCharacteristic hapticFeatures;
+    private Runnable hapticGap;
+    private BooleanSupplier hapticAllowed;
+    private String hapticPattern;
+    private int hapticPulse;
+    private long hapticGeneration, hapticRequestedAt;
     private int ledRequested = -1;
     private volatile LedState ledState = new LedState(false, false, -1,
         "LED brightness unknown; read during an existing live connection");
     private OpusDecoder decoder;
     private final FrameAssembler frames = new FrameAssembler();
+    private final ButtonGestures gestures = new ButtonGestures();
+    private Runnable gestureDeadline;
+    private long gestureConfiguration;
     // In-memory, payload-free diagnostics. Never retain packet bytes, selection,
     // user strings or transcript text. Counters are approximate live snapshots.
     private enum Event { OPEN, CONNECTION_CALLBACK, NATIVE_LOSS, GATT_TIMEOUT, AUDIO_TIMEOUT, FAILURE, STOP_OR_REPLACE }
@@ -124,6 +149,139 @@ public final class OmiBle {
     }
     public void readLedBrightness() { requestLed(false, -1); }
     public void setLedBrightness(int value) { requestLed(true, value); }
+    /** Optional best-effort output. Never connects, retries or buffers alerts.
+     * The guard is generation-bound by the caller and checked before each write.
+     * Firmware self-stops each pulse; it has no BLE stop command. */
+    public void requestDoublePulse(BooleanSupplier allowed) { requestPattern(HapticPatterns.DOUBLE, allowed); }
+    /** Stock, bounded presets only. Unknown IDs fall back to the double pattern. */
+    public void requestPattern(String pattern, BooleanSupplier allowed) {
+        final String selectedPattern = HapticPatterns.normalize(pattern);
+        synchronized (workerLock) {
+            BluetoothGatt remote = gatt;
+            long generation = connectionGeneration.get(), requestedAt = SystemClock.elapsedRealtime();
+            int entryOperation = operation;
+            if (handler == null) { listener.onHapticStatus("Connect your Omi first"); return; }
+            handler.post(() -> {
+                if (!current(remote) || generation != connectionGeneration.get() || !permitted(allowed)) return;
+                if (!(audioReady || (controlsOnly && buttonReady)) || entryOperation != 6 || operation != 6) {
+                    listener.onHapticStatus("Omi busy — notification pulse skipped"); return;
+                }
+                if (ledQuarantined) {
+                    listener.onHapticStatus("Optional controls unavailable until the next natural reconnect"); return;
+                }
+                if (SystemClock.elapsedRealtime() - requestedAt > HAPTIC_FRESH_MS) return;
+                try {
+                    BluetoothGattCharacteristic target = findHaptic(remote);
+                    if (target == null) { listener.onHapticStatus("This Omi firmware does not expose a writable vibration control"); return; }
+                    hapticCharacteristic = target; hapticAllowed = allowed;
+                    hapticPattern = selectedPattern; hapticPulse = 0;
+                    hapticGeneration = generation; hapticRequestedAt = requestedAt;
+                    hapticFeatures = findHapticFeatures(remote);
+                    if (hapticFeatures == null) {
+                        hapticFailure(remote, "Vibration unsupported: modern Omi capability service required", false); return;
+                    }
+                    arm(16);
+                    if (!hapticCurrent(remote)) { hapticFailure(remote, "Notification pulse cancelled", false); return; }
+                    if (!remote.readCharacteristic(hapticFeatures))
+                        hapticFailure(remote, "Cannot verify vibration capability; pulse skipped", false);
+                } catch (RuntimeException e) { hapticFailure(remote, "Vibration unavailable; optional controls paused", true); }
+            });
+        }
+    }
+    private static boolean permitted(BooleanSupplier allowed) {
+        try { return allowed != null && allowed.getAsBoolean(); }
+        catch (RuntimeException e) { return false; }
+    }
+    private BluetoothGattCharacteristic findHaptic(BluetoothGatt remote) {
+        BluetoothGattService service = remote.getService(HAPTIC_SERVICE);
+        if (service == null || !HAPTIC_SERVICE.equals(service.getUuid())) return null;
+        BluetoothGattCharacteristic target = service.getCharacteristic(HAPTIC);
+        return target != null && HAPTIC.equals(target.getUuid()) &&
+            (target.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0 ? target : null;
+    }
+    private BluetoothGattCharacteristic findHapticFeatures(BluetoothGatt remote) {
+        BluetoothGattService service = remote.getService(FEATURES_SERVICE);
+        if (service == null || !FEATURES_SERVICE.equals(service.getUuid())) return null;
+        BluetoothGattCharacteristic target = service.getCharacteristic(FEATURES);
+        return target != null && FEATURES.equals(target.getUuid()) &&
+            (target.getProperties() & BluetoothGattCharacteristic.PROPERTY_READ) != 0 ? target : null;
+    }
+    private void hapticFeaturesRead(BluetoothGatt remote, BluetoothGattCharacteristic target, byte[] value, int status) {
+        postEvent(() -> {
+            if (!current(remote, 16) || ledQuarantined || target != hapticFeatures) return;
+            try {
+                if (!hapticCurrent(remote)) { hapticFailure(remote, "Notification pulse cancelled", false); return; }
+                if (findHapticFeatures(remote) != target || status != BluetoothGatt.GATT_SUCCESS
+                        || value == null || value.length != 4) {
+                    hapticFailure(remote, "Vibration capability unverified; pulse skipped", false); return;
+                }
+                // Exact 32-bit little-endian modern Omi feature word; bit 5 = haptic.
+                int features = (value[0] & 255) | ((value[1] & 255) << 8)
+                    | ((value[2] & 255) << 16) | ((value[3] & 255) << 24);
+                if ((features & (1 << 5)) == 0) {
+                    hapticFailure(remote, "Vibration unsupported by this Omi firmware", false); return;
+                }
+                writeHaptic(remote, 13);
+            } catch (RuntimeException e) {
+                hapticFailure(remote, "Vibration capability check failed; optional controls paused", true);
+            }
+        });
+    }
+    private boolean hapticCurrent(BluetoothGatt remote) {
+        return current(remote) && !ledQuarantined && hapticGeneration == connectionGeneration.get()
+            && SystemClock.elapsedRealtime() - hapticRequestedAt <= HAPTIC_FRESH_MS && permitted(hapticAllowed);
+    }
+    private void clearHaptic() {
+        if (hapticGap != null) handler.removeCallbacks(hapticGap);
+        hapticGap = null; hapticAllowed = null; hapticCharacteristic = null; hapticFeatures = null;
+        hapticPattern = null; hapticPulse = 0;
+    }
+    private void hapticFailure(BluetoothGatt remote, String message, boolean quarantine) {
+        if (!current(remote)) return;
+        cancelDeadline(); clearHaptic(); operation = 6;
+        if (quarantine) {
+            quarantineOptional();
+            publishLed(false, false, -1, "Optional controls unavailable until the next natural reconnect");
+        }
+        listener.onHapticStatus(message);
+        // No audio gap, watchdog reset, disconnect or write retry.
+    }
+    private void writeHaptic(BluetoothGatt remote, int stage) {
+        if (!hapticCurrent(remote)) { hapticFailure(remote, "Notification pulse cancelled", false); return; }
+        try {
+            if (findHaptic(remote) != hapticCharacteristic) {
+                hapticFailure(remote, "Vibration control changed; pulse skipped", false); return;
+            }
+            hapticCharacteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+            if (!hapticCharacteristic.setValue(new byte[]{(byte)HapticPatterns.preset(hapticPattern, hapticPulse)})) {
+                hapticFailure(remote, "Cannot prepare vibration command", false); return;
+            }
+            arm(stage);
+            if (!hapticCurrent(remote)) { hapticFailure(remote, "Notification pulse cancelled", false); return; }
+            if (!remote.writeCharacteristic(hapticCharacteristic))
+                hapticFailure(remote, "Vibration command rejected; pulse skipped", false);
+        } catch (RuntimeException e) { hapticFailure(remote, "Vibration submission uncertain; optional controls paused", true); }
+    }
+    private void hapticWritten(BluetoothGatt remote, BluetoothGattCharacteristic target, int status) {
+        if (!current(remote) || ledQuarantined || target != hapticCharacteristic || (operation != 13 && operation != 15)) return;
+        if (status != BluetoothGatt.GATT_SUCCESS) { hapticFailure(remote, "Vibration command failed; pulse skipped", false); return; }
+        if (!hapticCurrent(remote)) { hapticFailure(remote, "Notification pulse cancelled", false); return; }
+        if (hapticPulse + 1 == HapticPatterns.pulseCount(hapticPattern)) {
+            String label = HapticPatterns.label(hapticPattern);
+            cancelDeadline(); clearHaptic(); operation = 6;
+            listener.onHapticStatus(label + " commands acknowledged by Omi"); return;
+        }
+        long spacing = HapticPatterns.gapAfterMs(hapticPattern, hapticPulse);
+        hapticPulse++;
+        cancelDeadline(); operation = 14;
+        hapticGap = new Runnable() { @Override public void run() {
+            if (hapticGap != this || !current(remote, 14)) return;
+            hapticGap = null; writeHaptic(remote, 15);
+        }};
+        // ACK-relative spacing exceeds the preceding preset's nominal duration.
+        // ATT acknowledgement proves transport acceptance, not the physical feel.
+        handler.postDelayed(hapticGap, spacing);
+    }
     /** Invalidated synchronously by selection/Stop and native loss, and on close.
      * Compare against Listener.onButton(event, generation) at downstream dispatch.
      * This is an instance-local invalidation token, not connection readiness. */
@@ -406,14 +564,17 @@ public final class OmiBle {
             else if (op >= 8 && op <= 10) ledFailure(remote,
                 "LED operation timed out; unavailable until next natural reconnect", true);
             else if (op == 11) batteryFailure(remote, true);
+            else if (op == 13 || op == 15 || op == 16) hapticFailure(remote, "Vibration timed out; optional controls paused", true);
             else fail((op == 1 ? "Omi connection" : op == 3 ? "Omi service discovery" : op == 4 ? "Omi audio format check" : "Omi audio subscription") + " timed out", true, Event.GATT_TIMEOUT);
         } };
-        handler.postDelayed(deadline, 15000);
+        handler.postDelayed(deadline, op == 13 || op == 15 || op == 16 ? 1500 : 15000);
     }
     private boolean current(BluetoothGatt remote) { return !stopped && activeSelection == selectionEpoch.get() && remote != null && remote == gatt; }
     private boolean current(BluetoothGatt remote, int op) { return current(remote) && operation == op; }
     private void closeGatt() {
         connectionGeneration.incrementAndGet();
+        cancelGestures();
+        clearHaptic();
         cancelDeadline(); cancelBatteryPoll(); BluetoothGatt old = gatt; gatt = null; operation = 0;
         cancelAudioWatch(); audioReady = buttonReady = audioReceived = false;
         discoveryRechecked = false;
@@ -424,6 +585,7 @@ public final class OmiBle {
         frames.reset(); decoder = null;
         publishLed(false, false, -1, "LED brightness unknown; read during an existing live connection");
         listener.onBattery(-1);
+        listener.onHapticStatus("Connect your Omi before testing notification vibrations");
     }
     private void stopInternal() {
         lastCloseReason = Event.STOP_OR_REPLACE; diagnosticEvent(lastCloseReason, 0);
@@ -513,6 +675,9 @@ public final class OmiBle {
             if (characteristic != null) characteristicRead(remote, characteristic, value == null ? null : value.clone(), status);
         }
         @Override public void onCharacteristicWrite(BluetoothGatt remote, BluetoothGattCharacteristic characteristic, int status) { postEvent(() -> {
+            if (characteristic != null && HAPTIC.equals(characteristic.getUuid())) {
+                hapticWritten(remote, characteristic, status); return;
+            }
             if (!current(remote, 9) || ledQuarantined || characteristic != ledCharacteristic) return;
             if (status != BluetoothGatt.GATT_SUCCESS) { ledFailure(remote, "LED write failed; read again", false); return; }
             try {
@@ -545,6 +710,7 @@ public final class OmiBle {
     private void characteristicRead(BluetoothGatt remote, BluetoothGattCharacteristic characteristic, byte[] value, int status) {
         if (LED.equals(characteristic.getUuid())) ledRead(remote, characteristic, value, status);
         else if (BATTERY.equals(characteristic.getUuid())) batteryRead(remote, characteristic, value, status);
+        else if (FEATURES.equals(characteristic.getUuid())) hapticFeaturesRead(remote, characteristic, value, status);
         else codecRead(remote, characteristic, value, status);
     }
     private void recheckDiscovery(BluetoothGatt remote, String reason) {
@@ -647,6 +813,9 @@ public final class OmiBle {
     }
     private void packet(BluetoothGatt remote, BluetoothGattCharacteristic characteristic, byte[] value) {
         long generation = gattGeneration;
+        long arrivedAt = SystemClock.elapsedRealtime();
+        long configuration = characteristic != null && BUTTON.equals(characteristic.getUuid())
+            ? listener.buttonConfigurationGeneration() : -1;
         // Before worker dispatch: distinguish ingress from worker/decode stalls.
         // No diagnostic IO or allocation per packet; never keep packet contents.
         if (remote != null && remote == gatt && characteristic != null && AUDIO.equals(characteristic.getUuid())) {
@@ -658,7 +827,7 @@ public final class OmiBle {
             int event = ButtonEvent.decode(value);
             if (event != ButtonEvent.NONE && generation == connectionGeneration.get()) {
                 if (controlsOnly) retry = 0; // A fresh button, not CCC ack, proves controls life.
-                listener.onButton(event, generation);
+                dispatchTap(remote, event, generation, configuration, arrivedAt);
             }
             return; // Buttons never refresh the audio watchdog.
         }
@@ -681,6 +850,35 @@ public final class OmiBle {
             }
         } catch (Exception e) { frames.reset(); listener.onGap(); listener.onStatus("Invalid Opus frame: incomplete task discarded"); try { decoder = new OpusDecoder(16000, 1); } catch (Exception ignored) { fail("Opus decoder failed", false); } }
     }); }
+    private void cancelGestures() {
+        if (gestureDeadline != null) handler.removeCallbacks(gestureDeadline);
+        gestureDeadline = null; gestures.reset();
+    }
+    private void dispatchTap(BluetoothGatt remote, int event, long generation, long configuration, long arrivedAt) {
+        if (configuration != listener.buttonConfigurationGeneration()) { cancelGestures(); return; }
+        if (configuration != gestureConfiguration) { cancelGestures(); gestureConfiguration = configuration; }
+        if (gestureDeadline != null) handler.removeCallbacks(gestureDeadline);
+        gestureDeadline = null;
+        int maxTaps = ButtonGestures.normalizeMaxTaps(listener.maxButtonTaps());
+        for (int resolved : gestures.accept(event, arrivedAt, maxTaps)) {
+            if (!current(remote) || generation != connectionGeneration.get()
+                    || configuration != listener.buttonConfigurationGeneration()) { cancelGestures(); return; }
+            listener.onButton(resolved, generation, configuration);
+        }
+        if (gestures.deadline() < 0) return;
+        gestureDeadline = new Runnable() { public void run() {
+            if (gestureDeadline != this) return;
+            gestureDeadline = null;
+            if (!current(remote) || generation != connectionGeneration.get()
+                    || maxTaps != ButtonGestures.normalizeMaxTaps(listener.maxButtonTaps())
+                    || configuration != listener.buttonConfigurationGeneration()) {
+                gestures.reset(); return;
+            }
+            int resolved = gestures.expire(SystemClock.elapsedRealtime());
+            if (resolved != ButtonEvent.NONE) listener.onButton(resolved, generation, configuration);
+        }};
+        handler.postDelayed(gestureDeadline, Math.max(0, gestures.deadline() - SystemClock.elapsedRealtime()));
+    }
     /** Package-visible pure packet parser for JVM tests. Last frame is discarded on stop. */
     static final class FrameAssembler {
         private final ByteArrayOutputStream pending = new ByteArrayOutputStream();

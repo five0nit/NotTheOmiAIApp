@@ -61,6 +61,7 @@ public final class ButtonActionsTest extends ActivityInstrumentationTestCase2<Om
             main(()->{OmiCaptureService.active=false;OmiCaptureService.controlsActive=false;ButtonActions.onPause(activity);activity.finish();});
             NotificationManager manager=context.getSystemService(NotificationManager.class);
             manager.cancel(ButtonActions.notificationId(1));manager.cancel(ButtonActions.notificationId(2));
+            manager.cancel(ButtonActions.notificationId(ButtonEvent.TRIPLE));
             prefs.edit().clear().commit();getInstrumentation().waitForIdleSync();
         }finally{super.tearDown();}
     }
@@ -78,24 +79,50 @@ public final class ButtonActionsTest extends ActivityInstrumentationTestCase2<Om
         }
         assertTrue(ButtonActions.setAction(context,2,"toggle"));assertEquals("toggle",ButtonActions.action(context,2));assertEquals("ignore",ButtonActions.action(context,1));
     }
+    public void testMappingGenerationTracksChangesIncludingDisableReenableAndTarget(){
+        long before=ButtonActions.configurationGeneration();
+        assertTrue(ButtonActions.setAction(context,ButtonEvent.TRIPLE,"media_next"));
+        long enabled=ButtonActions.configurationGeneration();assertTrue(enabled>before);
+        assertTrue(ButtonActions.setAction(context,ButtonEvent.TRIPLE,"media_next"));
+        assertEquals(enabled,ButtonActions.configurationGeneration());
+        assertTrue(ButtonActions.setAction(context,ButtonEvent.TRIPLE,"ignore"));
+        assertTrue(ButtonActions.setAction(context,ButtonEvent.TRIPLE,"media_next"));
+        assertTrue(ButtonActions.configurationGeneration()>enabled);
+        long restored=ButtonActions.configurationGeneration();
+        assertFalse(ButtonActions.setAction(context,ButtonEvent.SHAKE,"start"));
+        assertEquals(restored,ButtonActions.configurationGeneration());
+        assertTrue(ButtonActions.saveTarget(context,ButtonEvent.TRIPLE,new Intent().setComponent(launch),"Fixture",fixturePackage));
+        assertTrue(ButtonActions.configurationGeneration()>restored);
+    }
     public void testUnknownWrongTypeAndReservedGesturesFailClosed(){
         prefs.edit().putString("single_action","unexpected").putInt("double_action",123).commit();
         assertEquals("ignore",ButtonActions.action(context,1));assertEquals("ignore",ButtonActions.action(context,2));
         assertFalse(ButtonActions.setAction(context,1,"START"));
-        for(int event:new int[]{-1,0,3,4,5,Integer.MAX_VALUE}){
+        for(int event:new int[]{-1,0,3,4,5,ButtonEvent.SHAKE,Integer.MAX_VALUE}){
             assertEquals("ignore",ButtonActions.action(context,event));assertFalse(ButtonActions.setAction(context,event,"stop"));
             assertNull(ButtonActions.target(context,event));assertTrue(ButtonActions.launchShortcut(context,event).contains("Reserved"));
         }
     }
-    public void testRealSeparateDropdownsHaveEightLabelsAndPersistAcrossRecreation() throws Exception {
-        Spinner single=spinner(1),two=spinner(2);
+    public void testRealSeparateDropdownsHaveAllLabelsAndPersistAcrossRecreation() throws Exception {
+        Spinner single=spinner(1),two=spinner(2),three=spinner(ButtonEvent.TRIPLE);
         main(()->{assertNotSame(single,two);assertNotNull(single.getPopupBackground());assertNotNull(two.getPopupBackground());
-            assertEquals(8,single.getCount());assertEquals(8,two.getCount());
+            assertNotSame(two,three);assertNotNull(three.getPopupBackground());
+            assertEquals(ButtonActions.IDS.length,single.getCount());assertEquals(ButtonActions.IDS.length,two.getCount());assertEquals(ButtonActions.IDS.length,three.getCount());
             for(int i=0;i<ButtonActions.LABELS.length;i++)assertEquals(ButtonActions.LABELS[i],single.getItemAtPosition(i));
-            single.setSelection(ButtonActions.index("shortcut"));two.setSelection(ButtonActions.index("toggle"));});
-        await(()->"shortcut".equals(ButtonActions.action(context,1))&&"toggle".equals(ButtonActions.action(context,2)));
+            assertEquals("No action",three.getSelectedItem());
+            single.setSelection(ButtonActions.index("shortcut"));two.setSelection(ButtonActions.index("toggle"));three.setSelection(ButtonActions.index("media_next"));});
+        await(()->"shortcut".equals(ButtonActions.action(context,1))&&"toggle".equals(ButtonActions.action(context,2))&&"media_next".equals(ButtonActions.action(context,ButtonEvent.TRIPLE)));
         recreate();
-        main(()->{assertEquals("Phone shortcut",spinner(1).getSelectedItem());assertEquals("Start / stop recording",spinner(2).getSelectedItem());});
+        main(()->{assertEquals("Phone shortcut",spinner(1).getSelectedItem());assertEquals("Start / stop recording",spinner(2).getSelectedItem());assertEquals(ButtonActions.LABELS[ButtonActions.index("media_next")],spinner(ButtonEvent.TRIPLE).getSelectedItem());});
+    }
+    public void testTripleRefreshAndResumeKeepLiveMappingAndShakeUnavailable() throws Exception {
+        Spinner three=spinner(ButtonEvent.TRIPLE);
+        main(()->{OmiCaptureService.active=true;refresh();assertTrue(three.isEnabled());three.setSelection(ButtonActions.index("media_previous"));});
+        await(()->"media_previous".equals(ButtonActions.action(context,ButtonEvent.TRIPLE)));
+        main(()->{for(int i=0;i<20;i++)refresh();assertSame(three,spinner(ButtonEvent.TRIPLE));activity.onPause();});
+        ButtonActions.setAction(context,ButtonEvent.TRIPLE,"media_next");
+        main(()->{activity.onResume();assertEquals(ButtonActions.LABELS[ButtonActions.index("media_next")],three.getSelectedItem());assertTrue(text("omi.motion.status").contains("unavailable"));});
+        assertEquals("bookmark",ButtonActions.action(context,1));assertEquals("stop",ButtonActions.action(context,2));
     }
     public void testStatusRefreshKeepsSpinnerInstancesAndCaptureAllowsEdits() throws Exception {
         Spinner single=spinner(1),two=spinner(2);
@@ -252,9 +279,14 @@ public final class ButtonActionsTest extends ActivityInstrumentationTestCase2<Om
             main(()->ButtonActions.onPause(activity));
             String outcome=ButtonActions.launchShortcut(context,1);assertTrue(outcome,outcome.contains("tap the notification"));assertTrue(outcome.contains("not auto-launched"));
             assertEquals(0,monitor.getHits());
-            Notification notification=null;
-            for(StatusBarNotification entry:context.getSystemService(NotificationManager.class).getActiveNotifications())if(entry.getId()==ButtonActions.notificationId(1))notification=entry.getNotification();
-            assertNotNull(notification);assertNotNull(notification.contentIntent);
+            // Posting, like cancellation, queues system-server work after IPC returns.
+            Notification[] posted={null};
+            await(()->{
+                for(StatusBarNotification entry:context.getSystemService(NotificationManager.class).getActiveNotifications())
+                    if(entry.getId()==ButtonActions.notificationId(1)){posted[0]=entry.getNotification();return true;}
+                return false;
+            });
+            Notification notification=posted[0];assertNotNull(notification);assertNotNull(notification.contentIntent);
             if(Build.VERSION.SDK_INT>=31){assertTrue(notification.contentIntent.isActivity());assertTrue(notification.contentIntent.isImmutable());}
             assertEquals(Notification.VISIBILITY_PRIVATE,notification.visibility);
             assertTrue(notification.extras.getString(Notification.EXTRA_TITLE).contains("Tap to run"));
@@ -295,7 +327,7 @@ public final class ButtonActionsTest extends ActivityInstrumentationTestCase2<Om
     private boolean serviceRunning(String name){for(ActivityManager.RunningServiceInfo service:context.getSystemService(ActivityManager.class).getRunningServices(100))if(name.equals(service.service.getClassName()))return true;return false;}
     private View tag(String tag){return activity.getWindow().getDecorView().findViewWithTag(tag);}
     private String text(String tag){return ((TextView)tag(tag)).getText().toString();}
-    private Spinner spinner(int event){return (Spinner)tag(event==1?"omi.action.single":"omi.action.double");}
+    private Spinner spinner(int event){return (Spinner)tag("omi.action."+ButtonEvent.key(event));}
     private Object field(String name) throws Exception {Field field=OmiSettingsActivity.class.getDeclaredField(name);field.setAccessible(true);return field.get(activity);}
     private void refresh() throws Exception {Method method=OmiSettingsActivity.class.getDeclaredMethod("refresh");method.setAccessible(true);method.invoke(activity);}
     private void recreate() throws Exception {

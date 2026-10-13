@@ -263,6 +263,46 @@ public final class PlaybackTest extends AndroidTestCase {
         store.delete(secondId);
     }
 
+    public void testPlaybackHeadCrossesSignedBoundaryWithoutWrapping() {
+        LocalPlayback.PlaybackHead head = new LocalPlayback.PlaybackHead();
+        assertEquals(0L, head.update(0));
+        assertEquals(0x7fff_ffffL, head.update(Integer.MAX_VALUE));
+        assertEquals(0x8000_0000L, head.update(Integer.MIN_VALUE));
+        assertEquals(0x8000_0000L, head.update(Integer.MIN_VALUE));
+    }
+
+    public void testPlaybackHeadWrapDrainsAtExactWrittenFrame() {
+        LocalPlayback.PlaybackHead head = new LocalPlayback.PlaybackHead();
+        long written = 0x1_0000_0004L;
+        assertEquals(0xffff_fffeL, head.update(-2));
+        assertEquals(0xffff_ffffL, head.update(-1));
+        assertEquals(0x1_0000_0000L, head.update(0));
+        assertTrue(head.update(3) < written);
+        assertEquals(written, head.update(4));
+        assertFalse(head.update(4) < written);
+        assertEquals(written + 1, head.update(5));
+    }
+
+    public void testPlaybackHeadTracksFullQuotaAcrossStreamingAndDrain() {
+        LocalPlayback.PlaybackHead head = new LocalPlayback.PlaybackHead();
+        long written = Recordings.MAX_AUDIO_BYTES / 2;
+        for (long frames = 0; frames < written; frames += Recordings.SAMPLE_RATE) {
+            assertEquals(frames, head.update((int) frames));
+        }
+        assertTrue(head.update((int) (written - 1)) < written);
+        assertEquals(written, head.update((int) written));
+        assertFalse(head.update((int) written) < written);
+    }
+
+    public void testNewPlaybackHeadDoesNotInheritPreviousTrackFrames() {
+        LocalPlayback.PlaybackHead previous = new LocalPlayback.PlaybackHead();
+        previous.update(-1);
+        assertEquals(0x1_0000_0001L, previous.update(1));
+        LocalPlayback.PlaybackHead next = new LocalPlayback.PlaybackHead();
+        assertEquals(0L, next.update(0));
+        assertEquals(160L, next.update(160));
+    }
+
     public void testNaturalCompletionUnregistersReceiver() throws Exception {
         String id = silence(320); // Real sink writes a short silent PCM buffer and drains it.
         playback = new LocalPlayback(context, store::forEachPcm);

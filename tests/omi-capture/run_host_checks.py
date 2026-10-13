@@ -6,6 +6,7 @@ this does not prove Android encryption, actual speech or wearable acceptance.
 """
 import ast
 import pathlib
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -17,13 +18,40 @@ STUBS = ast.literal_eval(next(node.value for node in tree.body
     if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'STUBS' for t in node.targets)))
 STUBS = {k: v for k, v in STUBS.items() if not k.startswith('android/media/')}
 STUBS.pop('app/nottheomi/ai/OmiCaptureService.java')  # Compile the real Omi service below.
+# Compile just MainActivity's real dump override, not the unrelated Android UI.
+# A throwing superclass makes accidental default UI/state dumping fail this seam.
+activity_source = (SOURCE / 'MainActivity.java').read_text()
+dump_signature = '@Override public void dump(String prefix, java.io.FileDescriptor fd, java.io.PrintWriter out, String[] args)'
+dump_start = activity_source.index(dump_signature)
+dump_open = activity_source.index('{', dump_start)
+depth = 1
+dump_end = dump_open + 1
+while depth:
+    depth += (activity_source[dump_end] == '{') - (activity_source[dump_end] == '}')
+    dump_end += 1
+activity_dump = activity_source[dump_start:dump_end]
+dump_body = re.sub(r'//[^\n]*', '', activity_dump[activity_dump.index('{') + 1:-1]).strip()
+assert dump_body == 'OmiCaptureService.dumpQueueRejection(out);', 'Activity dump must remain payload-free and omit super/UI/args'
+STUBS['android/app/Activity.java'] = '''package android.app; public class Activity {
+ public void dump(String prefix,java.io.FileDescriptor fd,java.io.PrintWriter out,String[] args){throw new AssertionError("default Activity.dump exposes unrelated UI");}
+}'''
+STUBS['app/nottheomi/ai/MainActivity.java'] = 'package app.nottheomi.ai; public final class MainActivity extends android.app.Activity {\n' + activity_dump + '\n}'
 STUBS.update({
 'app/nottheomi/ai/ButtonActions.java': '''package app.nottheomi.ai; public final class ButtonActions {
  public static int launches, media;
- public static String action(android.content.Context c,int event){return c.getSharedPreferences("omi",0).getString(event==1?"single_action":"double_action",event==1?"bookmark":"stop");}
+ public static long configuration;
+ public static long configurationGeneration(){return configuration;}
+ public static String action(android.content.Context c,int event){return c.getSharedPreferences("omi",0).getString(ButtonEvent.key(event)+"_action",event==1?"bookmark":event==2?"stop":"ignore");}
+ public static String resolvedAction(android.content.Context c,int event,boolean recording){String a=action(c,event);return a.equals("smart")?(recording?"bookmark":"media_play_pause"):a;}
+ public static int maxButtonTaps(android.content.Context c){return !action(c,ButtonEvent.QUINTUPLE).equals("ignore")?5:!action(c,ButtonEvent.QUADRUPLE).equals("ignore")?4:!action(c,ButtonEvent.TRIPLE).equals("ignore")?3:2;}
  public static boolean isMediaAction(String action){return action.equals("media_pause")||action.equals("media_play_pause");}
  public static String dispatchMedia(android.content.Context c,int event){media++;return "music requested";}
+ public static String dispatchMediaAction(android.content.Context c,String action){media++;return "music requested";}
  public static String launchShortcut(android.content.Context c,int event){launches++;return "shortcut requested";}
+}''',
+'app/nottheomi/ai/TorchControl.java': '''package app.nottheomi.ai; public final class TorchControl {
+ public static int toggles;
+ public static String toggle(android.content.Context context){toggles++;return "Flashlight requested";}
 }''',
 'android/os/SystemClock.java': 'package android.os; public class SystemClock { public static volatile long offset, fixed=-1; public static long elapsedRealtime(){return fixed>=0?fixed:System.nanoTime()/1000000+offset;}}',
 'android/os/PowerManager.java': '''package android.os; public class PowerManager {
@@ -84,9 +112,10 @@ STUBS.update({
 'app/nottheomi/ai/Recordings.java': '''package app.nottheomi.ai;
 import java.util.*;import java.util.concurrent.*;
 public class Recordings {
- public static volatile int created,finished,textFailures;public static volatile String status;
+ public static volatile int created,finished,textFailures,audioAttempts;public static volatile String status;
  public static volatile int failAudioAt=-1,failCreateAt=-1,failFinishAt=-1;public static volatile String failTextContaining;
  public static volatile long audioDelayMs;public static volatile boolean failText,failNextText;
+ public static CountDownLatch textGate,textEntered=new CountDownLatch(1);
  public static CountDownLatch audioGate,audioEntered=new CountDownLatch(1),finishGate,finishEntered=new CountDownLatch(1);
  static final Recordings INSTANCE=new Recordings();
  public static final List<byte[]> audio=Collections.synchronizedList(new ArrayList<>());
@@ -99,14 +128,14 @@ public class Recordings {
  public Session create()throws Exception{if(created!=finished)throw new IllegalStateException("active session");if(created==failCreateAt)throw new java.io.IOException("create full");created++;activeId="fixture-"+created;return new Session(activeId);}
  private void active(String id){if(created==finished||!id.equals(activeId))throw new AssertionError("write after finish or wrong segment: "+id);}
  public void appendAudio(String id,byte[] bytes,int length)throws Exception{
-  active(id);audioEntered.countDown();if(audioGate!=null)audioGate.await();
+  active(id);audioAttempts++;audioEntered.countDown();if(audioGate!=null)audioGate.await();
   if(audioDelayMs>0)Thread.sleep(audioDelayMs);
   if(audio.size()==failAudioAt)throw new java.io.IOException("full");
   if(Thread.currentThread().getName().equals("fake-OmiBle"))throw new AssertionError("storage in BLE callback");
   if(length>6400)throw new AssertionError("unbounded PCM commit");audioIds.add(id);audio.add(Arrays.copyOf(bytes,length));
  }
  public void appendText(String id,String t)throws Exception{
-  active(id);if(failText||failNextText||(failTextContaining!=null&&t.contains(failTextContaining))){textFailures++;failNextText=false;throw new java.io.IOException("full");}textIds.add(id);text.add(t);
+  active(id);if(t.contains("recovery attempted")){textEntered.countDown();if(textGate!=null)textGate.await();}if(failText||failNextText||(failTextContaining!=null&&t.contains(failTextContaining))){textFailures++;failNextText=false;throw new java.io.IOException("full");}textIds.add(id);text.add(t);
  }
  public void finish(String id,String s)throws Exception{active(id);finishEntered.countDown();if(finishGate!=null)finishGate.await();if(finished==failFinishAt)throw new java.io.IOException("finish full");status=s;statuses.put(id,s);finished++;activeId=null;}
  public static byte[] segmentAudio(String id){java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();synchronized(audio){for(int i=0;i<audio.size();i++)if(id.equals(audioIds.get(i)))out.write(audio.get(i),0,audio.get(i).length);}return out.toByteArray();}
@@ -124,7 +153,10 @@ STUBS['android/app/Service.java'] = STUBS['android/app/Service.java'].replace(
     'public void startForeground(int id,Notification n,int type){if(type!=16)throw new AssertionError("not connectedDevice FGS");foregroundStarts++;}')
 SCENARIOS = ['null_intent', 'permission', 'legacy_permission', 'no_microphone_permission',
  'notifications', 'notification_dedupe', 'channel_blocked', 'phone_busy', 'address', 'prepare_cancel', 'native_cancel', 'wake_late_prepare', 'wake_prepare_cancel',
- 'archive_bookmark', 'button_mapping', 'gap', 'overflow', 'slow_asr', 'native_failure',
+ 'archive_bookmark', 'button_mapping', 'gap', 'overflow', 'queue_rejections', 'queue_prefix', 'queue_recovery',
+ 'capacity_events', 'capacity_stop', 'capacity_controls', 'capacity_full_gap', 'capacity_near_gap', 'capacity_gap_controls', 'capacity_inflight_gap', 'capacity_repeat', 'capacity_invalid', 'capacity_storage',
+ 'rejection_bytes', 'rejection_events', 'rejection_null', 'rejection_empty', 'rejection_oversize', 'consumer_timing',
+ 'slow_asr', 'native_failure',
  'storage_failure', 'text_failure', 'late_text_failure', 'active_until_saved', 'initial_failure',
  'small_packets_10ms', 'small_packets_20ms', 'initial_retry', 'stop_recovery', 'terminal_after_audio',
  'recovery_long_wait', 'recovery_long_stop', 'recovery_permission_loss', 'startup_timeout', 'repeated_gap', 'gap_speech_failure',
@@ -148,7 +180,7 @@ with tempfile.TemporaryDirectory(prefix='hermes-verify-omi-capture-') as tmp:
         target.write_text(textwrap.dedent(content))
     subprocess.run(['javac', '--release', '17', '-d', str(classes),
         *map(str, java.rglob('*.java')), str(SOURCE / 'OmiCaptureService.java'), str(SOURCE / 'OmiPcmQueue.java'),
-        str(SOURCE / 'LiveTranscript.java'),
+        str(SOURCE / 'LiveTranscript.java'), str(SOURCE / 'ButtonEvent.java'),
         str(ROOT / 'tests/omi-capture/OmiBle.java'), str(ROOT / 'tests/omi-capture/OmiCaptureServiceHostTest.java')], check=True)
     for scenario in SCENARIOS:
         subprocess.run(['java', '-cp', str(classes), 'app.nottheomi.ai.OmiCaptureServiceHostTest', scenario],

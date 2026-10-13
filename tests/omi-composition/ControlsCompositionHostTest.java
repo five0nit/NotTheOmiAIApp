@@ -184,6 +184,152 @@ public final class ControlsCompositionHostTest {
     }
     static void scenario(String name) throws Exception {
         switch (name) {
+            case "controls_multi_taps":
+            case "capture_multi_taps": {
+                boolean recording = name.startsWith("capture");
+                if (recording) capture(); else controls();
+                SharedPreferences.values.put("triple_action", "shortcut");
+                SharedPreferences.values.put("quadruple_action", "flashlight");
+                SharedPreferences.values.put("quintuple_action", "media_pause");
+                check(listener(ble()).maxButtonTaps() == 5, "service exposes highest assigned tap count");
+                press(ButtonEvent.DOUBLE); Handler.advance(150); press(ButtonEvent.DOUBLE);
+                check(TorchControl.toggles == 0 && ButtonActions.media == 0 && ButtonActions.launches == 0,
+                    "four presses await possible fifth; no lower action leaks");
+                Handler.advance(1600);
+                check(TorchControl.toggles == 1 && ButtonActions.media == 0, "four-press dispatch independent of fifth");
+                press(ButtonEvent.DOUBLE); Handler.advance(150); press(ButtonEvent.DOUBLE);
+                Handler.advance(150); press(ButtonEvent.SINGLE); Handler.advance(1600);
+                check(TorchControl.toggles == 1 && ButtonActions.media == 1 && ButtonActions.launches == 0,
+                    "five-press dispatch suppresses four and triple components");
+                press(ButtonEvent.DOUBLE); Handler.advance(150); press(ButtonEvent.SINGLE); Handler.advance(1600);
+                check(ButtonActions.launches == 1 && TorchControl.toggles == 1 && ButtonActions.media == 1,
+                    "triple still independently dispatches with four/five enabled");
+                check(service.adapter.connections == 1 && OmiCaptureService.active == recording,
+                    "multi-tap utility actions do not stop or start recording");
+                if (!recording) noCaptureResources();
+                break;
+            }
+            case "controls_smart": {
+                controls(); SharedPreferences.values.put("single_action", "smart");
+                press(ButtonEvent.SINGLE);
+                check(ButtonActions.media == 1, "smart idle resolves to play/pause, not raw smart dispatch");
+                noCaptureResources(); break;
+            }
+            case "capture_smart": {
+                capture(); SharedPreferences.values.put("single_action", "smart");
+                press(ButtonEvent.SINGLE);
+                until(() -> Recordings.text("segment-1").contains("[Omi button bookmark]"));
+                check(ButtonActions.media == 0 && OmiCaptureService.active, "smart capture bookmarks without media");
+                break;
+            }
+            case "controls_pause_start": {
+                controlsToCapture("pause_start", false);
+                check(ButtonActions.media == 1, "bounded pause-start requests media pause once");
+                break;
+            }
+            case "capture_pause_start": {
+                capture(); SharedPreferences.values.put("single_action", "pause_start");
+                press(ButtonEvent.SINGLE);
+                check(ButtonActions.media == 1 && service.adapter.connections == 1
+                    && Recordings.ids().size() == 1 && OmiCaptureService.active,
+                    "pause-start during recording only pauses media; no duplicate capture");
+                break;
+            }
+            case "controls_flashlight":
+            case "capture_flashlight": {
+                boolean recording = name.startsWith("capture");
+                if (recording) capture(); else controls();
+                SharedPreferences.values.put("single_action", "flashlight");
+                press(ButtonEvent.SINGLE); press(ButtonEvent.SINGLE);
+                check(TorchControl.toggles == 2 && OmiCaptureService.active == recording
+                    && service.adapter.connections == 1, "torch dispatcher independent of capture lifecycle");
+                if (!recording) noCaptureResources();
+                break;
+            }
+            case "controls_triple": {
+                controls();
+                SharedPreferences.values.put("triple_action", "media_play_pause");
+                press(ButtonEvent.DOUBLE); Handler.advance(400); press(ButtonEvent.SINGLE);
+                check(ButtonActions.media == 1 && OmiCaptureService.controlsActive, "only triple media; no default Stop or bookmark");
+                Handler.advance(650); check(ButtonActions.media == 1, "no component actions after timer");
+                noCaptureResources();
+                SharedPreferences.values.put("triple_action", "start");
+                OmiBle old = ble(); BluetoothGatt oldLink = remote; BluetoothGattCharacteristic oldButton = button;
+                HandlerThread oldWorker = worker(old); oldWorker.exitGate = gate();
+                wireButton(oldLink, oldButton, ButtonEvent.SINGLE); Handler.drain();
+                prepareRemote(); afterExit(oldWorker, oldLink, false);
+                wireButton(oldLink, oldButton, ButtonEvent.DOUBLE); Handler.drain();
+                until(() -> oldWorker.exitEntered.getCount() == 0);
+                check(service.adapter.connections == 1 && Recordings.gets == 0 && oldWorker.isAlive(), "triple start respects actual worker exit barrier");
+                oldWorker.exitGate.countDown(); captures++;
+                until(() -> service.adapter.connections == 2); audioReady(); firstPcm();
+                OmiCaptureService.requestDisconnect(); until(() -> !OmiCaptureService.active); oneSegment(1, false);
+                break;
+            }
+            case "capture_triple": {
+                capture(); SharedPreferences.values.put("triple_action", "bookmark");
+                press(ButtonEvent.DOUBLE); Handler.advance(400); press(ButtonEvent.SINGLE);
+                until(() -> Recordings.text("segment-1").contains("[Omi button bookmark]"));
+                check(OmiCaptureService.active && service.adapter.connections == 1, "component double does not stop capture before triple");
+                Handler.advance(650);
+                check(Recordings.text("segment-1").stream().filter(t -> t.equals("[Omi button bookmark]")).count() == 1, "triple bookmarks exactly once");
+                SharedPreferences.values.put("triple_action", "stop");
+                OmiBle old = ble(); BluetoothGatt oldLink = remote; BluetoothGattCharacteristic oldButton = button;
+                HandlerThread oldWorker = worker(old);
+                press(ButtonEvent.SINGLE); prepareRemote(); afterExit(oldWorker, oldLink, true);
+                wireButton(oldLink, oldButton, ButtonEvent.DOUBLE); Handler.drain();
+                until(() -> service.adapter.connections == 2 && OmiCaptureService.controlsActive);
+                controlsReady(); oneSegment(1, false);
+                check(Recordings.text("segment-1").stream().filter(t -> t.equals("[Omi button bookmark]")).count() == 1, "triple stop suppresses component bookmark");
+                break;
+            }
+            case "controls_triple_stale": {
+                controls(); SharedPreferences.values.put("triple_action", "start");
+                OmiBle old = ble(); BluetoothGatt oldLink = remote; BluetoothGattCharacteristic oldButton = button;
+                press(ButtonEvent.DOUBLE);
+                wireButton(oldLink, oldButton, ButtonEvent.SINGLE); Handler.drainWorkers();
+                oldLink.callback.onConnectionStateChange(oldLink, 8, BluetoothProfile.STATE_DISCONNECTED); Handler.drain();
+                noCaptureResources();
+                check(!OmiCaptureService.active, "main-queued triple start fenced on native loss");
+                prepareRemote(); Handler.advance(1000); controlsReady();
+                SharedPreferences.values.put("single_action", "start");
+                press(ButtonEvent.SINGLE);
+                remote.callback.onConnectionStateChange(remote, 8, BluetoothProfile.STATE_DISCONNECTED); Handler.drain();
+                Handler.advance(650); noCaptureResources();
+                check(!OmiCaptureService.active, "pending component deadline fenced on native loss");
+                OmiCaptureService.requestDisconnect(); quietNoRevival(2); break;
+            }
+            case "controls_configuration_queue": {
+                controls();
+                for (String action : new String[]{"start","shortcut","media_pause"}) {
+                    SharedPreferences.values.put("triple_action",action);ButtonActions.configuration++;
+                    press(ButtonEvent.DOUBLE);
+                    wireButton(remote,button,ButtonEvent.SINGLE);Handler.drainWorkers();
+                    SharedPreferences.values.put("triple_action","ignore");ButtonActions.configuration++;
+                    SharedPreferences.values.put("triple_action",action);ButtonActions.configuration++;
+                    Handler.drain();
+                    check(!OmiCaptureService.active && OmiCaptureService.controlsActive,
+                        "main-queued triple cannot start recording after reconfiguration");
+                    check(ButtonActions.media==0 && ButtonActions.launches==0,
+                        "main-queued media/shortcut discarded after reconfiguration");
+                }
+                noCaptureResources();break;
+            }
+            case "capture_configuration_queue": {
+                capture();SharedPreferences.values.put("double_action","stop");
+                wireButton(remote,button,ButtonEvent.DOUBLE);
+                SharedPreferences.values.put("double_action","ignore");ButtonActions.configuration++;
+                Handler.drain();
+                check(OmiCaptureService.active && Recordings.finishedIds().isEmpty(),
+                    "queued stop revoked before transport worker cannot terminate capture");
+                SharedPreferences.values.put("single_action","media_pause");ButtonActions.configuration++;
+                wireButton(remote,button,ButtonEvent.SINGLE);Handler.drainWorkers();
+                ButtonActions.configuration++;Handler.drain();
+                check(ButtonActions.media==0 && OmiCaptureService.active,
+                    "main-queued media revoked without affecting capture");
+                OmiCaptureService.requestDisconnect();until(()->!OmiCaptureService.active);oneSegment(1,false);
+                break;
+            }
             case "controls_reject_phone":
             case "controls_reject_permission":
             case "controls_reject_notification":

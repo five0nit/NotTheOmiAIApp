@@ -31,6 +31,12 @@ public final class ButtonBleTest {
         final List<Integer> buttons = new ArrayList<>();
         final List<Long> buttonGenerations = new ArrayList<>();
         Runnable buttonHook;
+        boolean triple;
+        int maxTaps;
+        long configuration;
+        public long buttonConfigurationGeneration() { return configuration; }
+        public boolean tripleEnabled() { return triple; }
+        public int maxButtonTaps() { return maxTaps == 0 ? OmiBle.Listener.super.maxButtonTaps() : maxTaps; }
         final List<String> statuses = new ArrayList<>();
         final List<OmiBle.LedState> ledStates = new ArrayList<>();
         final List<Integer> batteries = new ArrayList<>();

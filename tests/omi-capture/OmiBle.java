@@ -8,7 +8,12 @@ public final class OmiBle {
         void onDevice(String address, String name); void onPcm(short[] samples);
         void onStatus(String value); void onGap(); void onButton(int event);
         default void onButton(int event, long generation) { onButton(event); }
+        default void onButton(int event, long generation, long configuration) { onButton(event, generation); }
+        default long buttonConfigurationGeneration() { return 0; }
+        default boolean tripleEnabled() { return false; }
+        default int maxButtonTaps() { return tripleEnabled() ? 3 : 2; }
         default void onBattery(int value) {} default void onLedState(LedState value) {}
+        default void onHapticStatus(String value) {}
     }
     public static final class LedState {
         public final boolean supported, busy; public final int brightness; public final String message;
@@ -59,6 +64,8 @@ public final class OmiBle {
     String diagnostics() { return "transport=fixture"; }
     public void readLedBrightness() { ledReads++; }
     public void setLedBrightness(int value) { ledWrites++; }
+    public void requestDoublePulse(java.util.function.BooleanSupplier allowed) {}
+    public void requestPattern(String pattern, java.util.function.BooleanSupplier allowed) {}
     static void send(Runnable action) throws Exception {
         OmiBle current=instance;
         CountDownLatch done = new CountDownLatch(1);

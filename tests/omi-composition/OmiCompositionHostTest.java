@@ -182,6 +182,99 @@ public final class OmiCompositionHostTest {
                 check(owner.diagnostics().contains("close_reason=STOP_OR_REPLACE"),"explicit cleanup retained as fixed reason, not radio failure");
                 oneSegment(1,true);break;
             }
+            case "queue_overload_recovery": {
+                ready(); firstPcm();
+                BluetoothGatt original = remote;
+                Recordings.audioGate = new java.util.concurrent.CountDownLatch(1);
+                try {
+                    // A real archive consumer stalls while the real BLE decoder keeps delivering.
+                    for (int i = 0; i < 10; i++) frame(opus);
+                    check(Recordings.audioEntered.await(3, java.util.concurrent.TimeUnit.SECONDS),
+                        "archive writer held at a deterministic boundary");
+                    for (int i = 0; i < 150; i++) frame(opus);
+                    OmiPcmQueue queue = (OmiPcmQueue) field(service, "incoming");
+                    check((int) field(queue, "bytes") == OmiPcmQueue.MAX_BYTES,
+                        "overload retains the exact bounded accepted prefix");
+                    check(OmiCaptureService.active && !original.closed && service.adapter.connections == 1,
+                        "valid PCM capacity pressure must not stop capture or close the existing BLE link");
+                    check(!OmiCaptureService.state.startsWith("Recording"),
+                        "dropped incoming PCM is not falsely presented as current recording");
+                } finally {
+                    Recordings.audioGate.countDown(); Recordings.audioGate = null;
+                }
+                gapProcessedWithoutRollover();
+                int prefixFrames = 111; // 1 committed + 10 in-flight + 100 queued.
+                check(Arrays.equals(Recordings.bytes("segment-1"), decoded(prefixFrames)),
+                    "every previously accepted sample survives overload in exact order");
+                check(OmiCaptureService.active && !original.closed,
+                    "draining the gap fence leaves the owner connected and recoverable");
+                frame(opus);
+                until(() -> Recordings.ids().size() == 2 && Recordings.total() == (prefixFrames + 1) * 640);
+                check(OmiCaptureService.state.startsWith("Recording"), "new real PCM resumes automatically");
+                check(!original.closed && service.adapter.connections == 1,
+                    "queue recovery creates no competing BLE client or reconnect");
+                byte[] reference = decoded(162);
+                check(Arrays.equals(Recordings.bytes("segment-2"),
+                        Arrays.copyOfRange(reference, reference.length - 640, reference.length)),
+                    "resumed segment stores exact real decoder PCM, not silence or discarded backlog");
+                check(Recordings.text("segment-1").stream().filter(t -> t.startsWith("[Omi audio gap")).count() == 1,
+                    "repeated overflow coalesces into one honest old-segment gap");
+                check(Recordings.text("segment-2").stream().anyMatch(t -> t.startsWith("[Omi audio resumed after a gap")),
+                    "resumed recording explicitly discloses continuity loss");
+                check(Recordings.log().indexOf("finish:segment-1") < Recordings.log().indexOf("create:segment-2"),
+                    "old archive finalized before recovered segment creation");
+                drop(); retry(); ready();
+                check(OmiCaptureService.active && service.adapter.connections == 2,
+                    "native loss still retries after a recovered queue overload");
+                disconnect();
+                check(Recordings.ids().equals(List.of("segment-1", "segment-2"))
+                    && Recordings.finishedIds().equals(Recordings.ids()), "all real segments finalized, no empty retry segment");
+                break;
+            }
+            case "radio_gap_capacity_overlap": {
+                ready(); firstPcm();
+                OmiPcmQueue queue = (OmiPcmQueue) field(service, "incoming");
+                Recordings.audioGate = new java.util.concurrent.CountDownLatch(1);
+                try {
+                    for (int i = 0; i < 10; i++) frame(opus);
+                    check(Recordings.audioEntered.await(3, java.util.concurrent.TimeUnit.SECONDS),
+                        "archive append blocked before near-full overlap");
+                    for (int i = 0; i < 100; i++) frame(opus);
+                    for (int i = 0; i < 27; i++) check(queue.bookmark("accepted-control-" + i),
+                        "all pre-gap controls accepted");
+                    check(((java.util.Deque<?>) field(queue, "events")).size() == 127,
+                        "exact near-full event queue before radio gap");
+                    drop(); retry(); ready();
+                    check(((java.util.Deque<?>) field(queue, "events")).size() == 128,
+                        "radio gap consumes the remaining normal slot");
+                    frame(opus); frame(opus);
+                    check(queue.paused() && OmiCaptureService.active && !remote.closed,
+                        "capacity rejection pauses archive ingress without closing replacement BLE");
+                    check(!queue.bookmark("rejected-after-fence"), "post-fence control cannot overtake boundary");
+                } finally {
+                    Recordings.audioGate.countDown(); Recordings.audioGate = null;
+                }
+                until(() -> !queue.paused());
+                check(Arrays.equals(Recordings.bytes("segment-1"), decoded(111)),
+                    "radio/capacity overlap preserves every accepted PCM sample");
+                List<String> text = Recordings.text("segment-1");
+                check(text.stream().filter(t -> t.startsWith("[Omi audio gap")).count() == 1,
+                    "one missing-audio episode persists exactly one gap marker");
+                List<String> controls = text.stream().filter(t -> t.startsWith("accepted-control-")).toList();
+                check(controls.size() == 27, "all accepted controls retained");
+                for (int i = 0; i < controls.size(); i++) check(controls.get(i).equals("accepted-control-" + i),
+                    "accepted controls retain FIFO order");
+                check(text.stream().noneMatch(t -> t.equals("rejected-after-fence")), "rejected control not fabricated");
+                frame(opus);
+                until(() -> Recordings.ids().size() == 2 && Recordings.total() == 112 * 640);
+                check(OmiCaptureService.state.startsWith("Recording") && !remote.closed,
+                    "fresh PCM automatically resumes after coalesced boundary acknowledgement");
+                disconnect();
+                check(Recordings.finishedIds().equals(Recordings.ids()), "explicit disconnect drains both segments");
+                check(Recordings.text("segment-2").stream().anyMatch(t -> t.startsWith("[Omi audio resumed after a gap")),
+                    "new segment explicitly discloses overlap loss");
+                break;
+            }
             case "sequence_loss":
                 ready(); firstPcm(); sequence++; frame(opus);
                 check(OmiCaptureService.state.contains("Waiting for Omi") && Recordings.total() == 640, "sequence loss enters service recovery without fabricated PCM");

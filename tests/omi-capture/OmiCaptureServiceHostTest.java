@@ -74,7 +74,26 @@ public final class OmiCaptureServiceHostTest {
                 case "segment_finish_failure": segmentFailure("finish"); break;
                 case "segment_create_failure": segmentFailure("create"); break;
                 case "segment_marker_failure": segmentFailure("marker"); break;
-                case "overflow": overflow(); break;
+                case "overflow": capacityRecovery("bytes"); break;
+                case "capacity_events": capacityRecovery("events"); break;
+                case "capacity_stop": capacityRecovery("stop"); break;
+                case "capacity_controls": capacityRecovery("controls"); break;
+                case "capacity_full_gap": capacityRecovery("gap"); break;
+                case "capacity_near_gap": capacityGapOverlap("near"); break;
+                case "capacity_gap_controls": capacityGapOverlap("controls"); break;
+                case "capacity_inflight_gap": capacityGapOverlap("inflight"); break;
+                case "capacity_repeat": capacityRecovery("repeat"); break;
+                case "capacity_invalid": capacityRecovery("invalid"); break;
+                case "capacity_storage": capacityRecovery("storage"); break;
+                case "queue_rejections": queueRejections(); break;
+                case "queue_prefix": queuePrefix(); break;
+                case "queue_recovery": queueRecovery(); break;
+                case "rejection_bytes": rejectionPostmortem("bytes"); break;
+                case "rejection_events": rejectionPostmortem("events"); break;
+                case "rejection_null": rejectionPostmortem("null"); break;
+                case "rejection_empty": rejectionPostmortem("empty"); break;
+                case "rejection_oversize": rejectionPostmortem("oversize"); break;
+                case "consumer_timing": consumerTiming(); break;
                 case "slow_asr": slowAsr(); break;
                 case "streaming_partial": streamingPartial(); break;
                 case "partial_cancel": partialCancel(); break;
@@ -100,7 +119,7 @@ public final class OmiCaptureServiceHostTest {
             }
         } finally {
             Recordings.audioDelayMs=0; PreviewModelInstaller.hold=false; release(PreviewModel.gate); release(PreviewRecognizer.acceptGate); release(PreviewRecognizer.finalGate);
-            release(PreviewRecognizer.partialGate); release(Recordings.audioGate); release(Recordings.finishGate); release(OmiBle.stopGate);
+            release(Recordings.textGate);release(PreviewRecognizer.partialGate); release(Recordings.audioGate); release(Recordings.finishGate); release(OmiBle.stopGate);
             OmiCaptureService.requestStopCapture(); joinWorker(); Handler.drain();
             if (failure.get()!=null) throw new AssertionError("background failure",failure.get());
             check(PowerManager.held==0,"wake lock released");
@@ -428,14 +447,372 @@ public final class OmiCaptureServiceHostTest {
         check(Arrays.equals(Recordings.segmentAudio("fixture-1"),little(pcm(100,3))) && Arrays.equals(Recordings.segmentAudio("fixture-2"),little(pcm(100,4))),"speech failure cannot splice playback audio across interruption");
         incompleteForEachSegment();
     }
-    static void overflow() throws Exception {
-        check(OmiPcmQueue.MAX_BYTES==64000 && OmiPcmQueue.MAX_EVENTS==128,"Whisper backlog growth does not change ingress bounds");
-        Recordings.audioGate=new CountDownLatch(1);ready();OmiBle.pcm(pcm(1920,3));await(Recordings.audioEntered);
-        for(int i=0;i<40;i++)OmiBle.pcm(pcm(1920,i));
-        release(Recordings.audioGate);finished();
-        check(Recordings.audio.size()==17,"bounded two-second FIFO plus single in-flight commit retained");
-        check(Recordings.text.get(Recordings.text.size()-1).startsWith("[Omi audio gap"),"overflow gap marker");
-        check(OmiCaptureService.state.contains("queue overflow"),"overflow terminal truthful");
+    static void capacityGapOverlap(String mode) throws Exception {
+        boolean inflight=mode.equals("inflight"), controls=mode.equals("controls");
+        Recordings.audioGate=new CountDownLatch(1);ready();
+        java.io.ByteArrayOutputStream expected=new java.io.ByteArrayOutputStream();
+        OmiBle.pcm(pcm(100,3));expected.write(little(pcm(100,3)));await(Recordings.audioEntered);
+        int bookmarks=0;
+        if(inflight) {
+            release(Recordings.audioGate);until(()->Recordings.total()==200);
+            Recordings.textGate=new CountDownLatch(1);
+            OmiBle.gap();await(Recordings.textEntered);
+            // The original gap is already consumed and its speech output is in flight.
+            // Hold the archive consumer on the next accepted control's output lock.
+            OmiBle.button(1);
+            Field workerField=OmiCaptureService.class.getDeclaredField("worker");workerField.setAccessible(true);
+            Thread archive=(Thread)workerField.get(service);
+            until(()->archive.getState()==Thread.State.BLOCKED);
+            for(int i=0;i<128;i++)OmiBle.button(1);
+            bookmarks=129;
+        } else {
+            for(int i=0;i<(controls?126:127);i++) {
+                short[] frame=pcm(1,10+i);OmiBle.pcm(frame);expected.write(little(frame));
+            }
+            OmiBle.gap();
+            if(controls){OmiBle.button(1);bookmarks=1;}
+        }
+        OmiBle.pcm(pcm(1,999));
+        check(OmiBle.stops==0 && OmiCaptureService.active && OmiCaptureService.state.contains("archive backlog"),
+                "capacity after an existing gap pauses without terminal Stop");
+        check(value(dumpActivity(),"queued_events")==128,"overlap fixture reaches exact event capacity");
+        String rejection=dumpActivity();
+        for(int i=0;i<10;i++){OmiBle.gap();OmiBle.pcm(pcm(1,999));}
+        check(dumpActivity().equals(rejection),"same episode preserves original diagnostic");
+        release(Recordings.audioGate);release(Recordings.textGate);
+        until(()->OmiCaptureService.state.contains("archive backlog drained"));
+        check(Recordings.created==1 && OmiCaptureService.waitingForOmi(),"drain creates no empty continuation");
+        OmiBle.pcm(pcm(100,77));stop();finished();
+        check(Arrays.equals(Recordings.segmentAudio("fixture-1"),expected.toByteArray()),"overlap keeps exact accepted prefix");
+        check(Arrays.equals(Recordings.segmentAudio("fixture-2"),little(pcm(100,77))),"only newly accepted PCM resumes into separate segment");
+        int gaps=0, savedBookmarks=0;
+        for(String text:Recordings.text) {
+            if(text.contains("recovery attempted"))gaps++;
+            if(text.equals("[Omi button bookmark]")){savedBookmarks++;check(gaps==1,"accepted controls stay after original gap");}
+        }
+        check(gaps==1,"one missing-audio episode must not produce duplicate recovery markers: "+gaps);
+        check(savedBookmarks==bookmarks && PreviewRecognizer.resets==bookmarks+1,"every accepted control retained, one gap reset");
+        check(Recordings.created==2 && "saved".equals(Recordings.status),"overlap is nonterminal with exactly two PCM segments");
+    }
+    static void capacityRecovery(String mode) throws Exception {
+        check(OmiPcmQueue.MAX_BYTES==64000 && OmiPcmQueue.MAX_EVENTS==128 && OmiPcmQueue.MAX_BATCH_BYTES==6400,
+                "capacity recovery does not enlarge any queue or commit bound");
+        Recordings.audioGate=new CountDownLatch(1);ready();
+        java.io.ByteArrayOutputStream expected=new java.io.ByteArrayOutputStream();
+        OmiBle.pcm(pcm(100,3));expected.write(little(pcm(100,3)));await(Recordings.audioEntered);
+        boolean events=mode.equals("events") || mode.equals("gap") || mode.equals("controls");
+        // Include accepted controls both before and at the end of a full FIFO.
+        int frames=events?126:100, samples=events?1:320;
+        OmiBle.button(1);
+        for(int i=0;i<frames;i++) { short[] frame=pcm(samples,10+i);OmiBle.pcm(frame);expected.write(little(frame)); }
+        OmiBle.button(1);
+        if(mode.equals("gap")) OmiBle.gap(); else OmiBle.pcm(pcm(samples,999));
+        check(OmiCaptureService.active && OmiBle.stops==0,"capacity recovery must keep capture and its BLE transport alive");
+        check(OmiCaptureService.state.contains("archive backlog") && !OmiCaptureService.state.startsWith("Recording"),
+                "archive backlog is visible, distinct from radio reconnecting");
+        check(OmiCaptureService.waitingForOmi() && OmiCaptureService.level==0 && OmiCaptureService.partial.isEmpty(),
+                "paused ingress cannot publish live level or preview");
+        String snapshot=dumpActivity();int posts=NotificationManager.posts;
+        for(int i=0;i<40;i++) { OmiBle.pcm(pcm(1,900+i));OmiBle.gap(); }
+        OmiBle.send(()->OmiBle.instance.listener.onStatus("Omi connected: receiving audio · local transcription active"));
+        check(!OmiCaptureService.transport.contains("receiving audio") && !OmiCaptureService.transport.contains("PCM arriving"),
+                "radio status cannot claim accepted live audio while archive ingress is paused");
+        check(dumpActivity().equals(snapshot) && NotificationManager.posts==posts,
+                "blocked PCM and repeated gaps coalesce without overwriting original cause or notification churn");
+        if(!mode.equals("gap")) {
+            numericOnly(snapshot);
+            check(value(snapshot,"rejection_reason")== (events?5:6),"original capacity cause retained");
+        }
+        if(mode.equals("controls")) {
+            OmiBle.button(1);
+            check(OmiCaptureService.lastButton.contains("not saved") && OmiBle.stops==0,
+                    "control behind reserved fence visibly rejected, not reordered or made terminal");
+        }
+        if(mode.equals("invalid")) {
+            OmiBle.pcm(new short[0]);check(OmiBle.stops==1,"invalid input remains terminal even during backlog");
+        }
+        if(mode.equals("stop")) {
+            // Use the actual Stop entry point, not the fixture's Disconnect shorthand.
+            OmiCaptureService.requestStopCapture();check(OmiBle.stops==1,"explicit Stop fences radio while backlog is blocked");
+            OmiBle.instance.listener.onPcm(pcm(100,999));
+        }
+        if(mode.equals("storage")) Recordings.failAudioAt=1;
+        release(Recordings.audioGate);
+        if(mode.equals("stop") || mode.equals("invalid") || mode.equals("storage")) {
+            finished();
+            if(mode.equals("storage")) check(Recordings.total()==200 && Recordings.audioAttempts==2 && "error".equals(Recordings.status),
+                    "storage failure remains terminal, failed append never retried");
+            else {
+                check(Arrays.equals(Recordings.segmentAudio("fixture-1"),expected.toByteArray()),"Stop/error drains exact accepted prefix");
+                check(Recordings.created==1,"Stop behind recovery fence creates no empty continuation");
+                check("error".equals(Recordings.status)==mode.equals("invalid"),"only malformed input is terminal error");
+                check(Recordings.text.stream().anyMatch(t->t.contains("recovery attempted")),"reserved gap survives terminal Stop");
+            }
+            return;
+        }
+        until(()->Recordings.total()==expected.size() && OmiCaptureService.state.startsWith("Waiting for Omi"));
+        check(OmiCaptureService.active && OmiBle.stops==0 && Recordings.created==1,"drained backlog waits for real PCM, no empty segment or reconnect");
+        OmiBle.pcm(pcm(100,77));until(()->Recordings.created==2 && Recordings.total()==expected.size()+200);
+        check(OmiCaptureService.state.startsWith("Recording"),"accepted resumed PCM automatically restores recording state");
+        if(mode.equals("repeat")) {
+            Recordings.audioGate=new CountDownLatch(1);Recordings.audioEntered=new CountDownLatch(1);
+            OmiBle.pcm(pcm(100,78));await(Recordings.audioEntered);
+            java.io.ByteArrayOutputStream second=new java.io.ByteArrayOutputStream();
+            second.write(little(pcm(100,77)));second.write(little(pcm(100,78)));
+            for(int i=0;i<100;i++){short[] frame=pcm(320,200+i);OmiBle.pcm(frame);second.write(little(frame));}
+            OmiBle.pcm(pcm(320,999));OmiBle.gap();
+            check(OmiBle.stops==0 && OmiCaptureService.state.contains("archive backlog"),"second overload receives a new bounded fence");
+            release(Recordings.audioGate);
+            until(()->Recordings.total()==expected.size()+second.size() && OmiCaptureService.state.startsWith("Waiting for Omi"));
+            OmiBle.pcm(pcm(100,88));until(()->Recordings.created==3);
+            stop();finished();
+            check(Arrays.equals(Recordings.segmentAudio("fixture-2"),second.toByteArray()),"second prefix exact without unmarked gap");
+            check(Arrays.equals(Recordings.segmentAudio("fixture-3"),little(pcm(100,88))),"second continuation isolated");
+        } else {
+            stop();finished();
+            check(Arrays.equals(Recordings.segmentAudio("fixture-2"),little(pcm(100,77))),"continuation contains only real post-fence audio");
+        }
+        check(Arrays.equals(Recordings.segmentAudio("fixture-1"),expected.toByteArray()),"every accepted prefix byte preserved exactly once in order");
+        int bookmarks=0,gaps=0;
+        for(int i=0;i<Recordings.text.size();i++) {
+            String text=Recordings.text.get(i);
+            if(text.equals("[Omi button bookmark]")) {bookmarks++;check(gaps==0,"all accepted controls precede reserved boundary");}
+            if(text.contains("recovery attempted"))gaps++;
+        }
+        check(bookmarks==2 && gaps==(mode.equals("repeat")?2:1),"controls retained and one gap per distinct overload episode");
+        check(PreviewRecognizer.resets==bookmarks+gaps,"speech reset follows each accepted boundary");
+        check("saved".equals(Recordings.status),"capacity loss disclosed without fatal storage/capture error");
+    }
+    static void queueRecovery() throws Exception {
+        for(boolean bytes:new boolean[]{false,true}) for(boolean stop:new boolean[]{false,true}) {
+            OmiPcmQueue q=new OmiPcmQueue();
+            java.io.ByteArrayOutputStream expected=new java.io.ByteArrayOutputStream();
+            int frames=bytes?100:128, samples=bytes?320:1;
+            for(int i=0;i<frames;i++) {
+                short[] frame=pcm(samples,i);
+                check(q.offerRecovering(frame,"gap")==0,"exact original queue limit accepted");
+                expected.write(little(frame));
+            }
+            check(q.offerRecovering(pcm(1,999),"gap")== (bytes?6:5),"capacity failure atomically reserves recovery");
+            OmiPcmQueue.Rejection cause=q.lastRejection();
+            check(q.paused() && !q.bookmark("late"),"reserved fence blocks controls at full capacity");
+            java.io.ByteArrayOutputStream actual=new java.io.ByteArrayOutputStream();
+            OmiPcmQueue.Event fence;
+            while(true) {
+                OmiPcmQueue.Event event=q.pollBatch(0);
+                check(event!=null,"accepted prefix then reserved fence available without timer");
+                if(event.pcm==null) {fence=event;break;}
+                check(event.pcm.length<=OmiPcmQueue.MAX_BATCH_BYTES,"batch size not enlarged by recovery");
+                actual.write(event.pcm);
+                check(q.offerRecovering(pcm(1,999),"gap")==7 && !q.bookmark("late"),
+                        "freeing some capacity never admits PCM/controls ahead of pending fence");
+                check(q.recover("duplicate") && q.lastRejection()==cause,"repeated gaps coalesce without replacing cause");
+            }
+            check(Arrays.equals(expected.toByteArray(),actual.toByteArray()) && "gap".equals(fence.marker)
+                    && !fence.terminal,"exact accepted prefix followed by one nonterminal fence");
+            check(q.paused() && q.offerRecovering(pcm(1,999),"gap")==7 && q.pollBatch(0)==null,
+                    "dequeued fence still blocks ingress until consumer acknowledges it");
+            check(!q.completeRecovery(new OmiPcmQueue.Event(null,"gap",false)),"unrelated event cannot reopen ingress");
+            if(stop) q.close("stop");
+            check(q.completeRecovery(fence) && !q.completeRecovery(fence),"recovery acknowledgement is single-shot");
+            if(stop) {
+                check(q.offerRecovering(pcm(1,7),"gap")==1 && !q.bookmark("late"),"Stop remains closed after recovery acknowledgement");
+                OmiPcmQueue.Event terminal=q.pollBatch(0);
+                check(terminal.terminal && "stop".equals(terminal.marker),"Stop follows the prefix and reserved recovery fence");
+            } else {
+                check(q.offerRecovering(pcm(1,7),"gap")==0,"acknowledgement automatically admits the next real PCM");
+                check(Arrays.equals(q.pollBatch(0).pcm,little(pcm(1,7))),"no blocked PCM silently retained for later replay");
+                check(q.lastRejection()==cause,"successful resume retains original diagnostic");
+            }
+            check(q.pollBatch(0)==null,"no duplicate fence or unbounded recovery/control queue");
+            q.clear();
+        }
+    }
+    static void rejection(OmiPcmQueue queue, short[] input, int reason, int bytes, int events, boolean closed) {
+        check(!queue.offer(input), "offer rejected");
+        OmiPcmQueue.Rejection r=queue.lastRejection();
+        check(r!=null && r.reason==reason && r.queuedBytes==bytes && r.queuedEvents==events
+                && r.inputSamples==(input==null?-1:input.length) && r.closed==closed,
+                "atomic rejection captures exact branch and pre-clear numeric occupancy");
+        numericOnly(r.diagnostics());
+        check(r.stopReason().contains("queue overflow")==(reason==5 || reason==6),
+                "only capacity saturation is called overflow");
+    }
+    static void queueRejections() throws Exception {
+        check(OmiPcmQueue.MAX_BYTES==64000 && OmiPcmQueue.MAX_EVENTS==128 && OmiPcmQueue.MAX_BATCH_BYTES==6400,
+                "diagnostics do not alter any queue bound");
+        OmiPcmQueue q=new OmiPcmQueue();
+        check(q.lastRejection()==null,"new queue has no failed offer");
+        check(q.offer(pcm(1,7)) && q.bookmark("private marker"),"nonempty queue for invalid-input snapshots");
+        rejection(q,null,2,2,2,false);
+        rejection(q,new short[0],3,2,2,false);
+        rejection(q,new short[1921],4,2,2,false);
+        OmiPcmQueue.Rejection invalid=q.lastRejection();
+        check(q.offer(pcm(1,11)) && q.lastRejection()==invalid,"accepted offers do not erase last rejection");
+        q.close("private terminal");
+        rejection(q,null,1,4,3,true); // Closed takes precedence even over malformed PCM.
+        OmiPcmQueue.Rejection saved=q.lastRejection();
+        q.clear();
+        check(q.lastRejection()==saved,"clear preserves exact immutable rejection, not zeroed occupancy");
+        rejection(q,pcm(1,9),1,0,0,true);
+        check(saved.queuedBytes==4 && saved.queuedEvents==3,"later rejection cannot mutate prior snapshot");
+
+        q=new OmiPcmQueue();
+        for(int i=0;i<16;i++)check(q.offer(pcm(1920,i)),"valid decoder maximum fits");
+        check(q.offer(pcm(1280,33)),"exact byte limit accepted");
+        rejection(q,pcm(1,4),6,OmiPcmQueue.MAX_BYTES,17,false);
+        saved=q.lastRejection();q.clear();
+        check(q.lastRejection()==saved && saved.queuedBytes==64000,"byte-limit evidence survives scrub");
+
+        q=new OmiPcmQueue();
+        for(int i=0;i<OmiPcmQueue.MAX_EVENTS;i++)check(q.offer(pcm(1,i)),"exact event limit accepted");
+        rejection(q,pcm(1,4),5,OmiPcmQueue.MAX_EVENTS*2,OmiPcmQueue.MAX_EVENTS,false);
+        // Input validation still precedes saturation; no label guesses from length later.
+        rejection(q,new short[1921],4,OmiPcmQueue.MAX_EVENTS*2,OmiPcmQueue.MAX_EVENTS,false);
+        q.clear();
+        q=new OmiPcmQueue();
+        for(int i=0;i<OmiPcmQueue.MAX_EVENTS;i++)check(q.offer(pcm(250,i)),"both exact bounds accepted");
+        rejection(q,pcm(1,4),5,OmiPcmQueue.MAX_BYTES,OmiPcmQueue.MAX_EVENTS,false);
+        q.clear();
+    }
+    static void queuePrefix() throws Exception {
+        OmiPcmQueue q=new OmiPcmQueue();
+        java.util.ArrayList<byte[]> prefixes=new java.util.ArrayList<>();
+        java.util.ArrayList<String> markers=new java.util.ArrayList<>();
+        java.io.ByteArrayOutputStream expected=new java.io.ByteArrayOutputStream();
+        int bytes=0;
+        for(int i=0;i<OmiPcmQueue.MAX_EVENTS;i++) {
+            if(i%7==6) {
+                String marker="private-control-"+i;
+                check(q.bookmark(marker),"control shares bounded FIFO");
+                markers.add(marker);prefixes.add(expected.toByteArray());expected.reset();
+            } else {
+                short[] frame=pcm(17,i);byte[] owned=little(frame);
+                check(q.offer(frame),"accepted prefix PCM");expected.write(owned);bytes+=owned.length;
+                Arrays.fill(frame,(short)0);
+            }
+        }
+        prefixes.add(expected.toByteArray());
+        rejection(q,pcm(17,999),5,bytes,OmiPcmQueue.MAX_EVENTS,false);
+        OmiPcmQueue.Rejection saved=q.lastRejection();
+        check(!q.bookmark("rejected-control"),"full event queue still rejects extra control");
+        q.close("terminal");
+        java.io.ByteArrayOutputStream actual=new java.io.ByteArrayOutputStream();int boundary=0;
+        while(true) {
+            OmiPcmQueue.Event event=q.pollBatch(0);
+            check(event!=null,"terminal cannot be lost by rejection diagnostics");
+            if(event.pcm!=null) {
+                check(event.pcm.length<=OmiPcmQueue.MAX_BATCH_BYTES,"original batch bound");
+                actual.write(event.pcm);
+            } else {
+                check(Arrays.equals(actual.toByteArray(),prefixes.get(boundary)),"byte-exact accepted prefix before every boundary");
+                actual.reset();
+                if(event.terminal) {check(boundary==markers.size() && event.marker.equals("terminal"),"terminal follows every accepted event");break;}
+                check(event.marker.equals(markers.get(boundary++)),"exact FIFO control order");
+            }
+        }
+        check(q.pollBatch(0)==null,"rejected input never splices into drained prefix");q.clear();
+        check(q.lastRejection()==saved,"drain and clear retain rejection");
+    }
+    static String dumpService() {
+        java.io.StringWriter text=new java.io.StringWriter();
+        service.dump(null,new java.io.PrintWriter(text),new String[]{"private argument"});return text.toString();
+    }
+    static String dumpActivity() {
+        java.io.StringWriter text=new java.io.StringWriter();
+        new MainActivity().dump("private prefix",null,new java.io.PrintWriter(text),new String[]{"private argument"});
+        return text.toString().trim();
+    }
+    static String liveConsumer() {
+        return dumpService().lines().filter(s->s.startsWith("consumer_approximate=")).findFirst().orElseThrow();
+    }
+    static long value(String line,String name) {
+        for(String token:line.split(" "))if(token.startsWith(name+"="))return Long.parseLong(token.substring(name.length()+1));
+        throw new AssertionError("missing numeric diagnostic: "+name);
+    }
+    static void numericOnly(String line) {
+        check(line.matches("[a-z_]+=-?[0-9]+(?: [a-z_]+=-?[0-9]+)*"),"fixed labels and numeric values only");
+        check(line.length()<512,"single bounded diagnostic, no payload or history");
+    }
+    static Object field(Object object,String name) throws Exception {
+        Field f=object.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(object);
+    }
+    static Object speechOutput() throws Exception {
+        Thread speech=Thread.getAllStackTraces().keySet().stream()
+                .filter(t->t.isAlive() && t.getName().equals("omi-offline-speech")).findFirst().orElseThrow();
+        return field(speech,"output");
+    }
+    static void rejectionPostmortem(String kind) throws Exception {
+        android.os.SystemClock.fixed=1000;
+        check(dumpActivity().equals("omi_queue_rejection=0"),"fresh process has explicit absent postmortem");
+        Recordings.audioGate=new CountDownLatch(1);ready();
+        short[] first=pcm(1920,3);OmiBle.pcm(first);await(Recordings.audioEntered);
+        OmiPcmQueue incoming=(OmiPcmQueue)field(service,"incoming");
+        java.io.ByteArrayOutputStream expected=new java.io.ByteArrayOutputStream();expected.write(little(first));
+        int frames=kind.equals("bytes")?16:kind.equals("events")?128:2;
+        int samples=kind.equals("bytes")?1920:kind.equals("events")?1:100;
+        int reason=kind.equals("bytes")?6:kind.equals("events")?5:kind.equals("null")?2:kind.equals("empty")?3:4;
+        short[] rejected=reason==2?null:reason==3?new short[0]:reason==4?new short[1921]:pcm(samples,999);
+        String snapshot;
+        // BLE's different thread must return while both archive append and the speech
+        // output lock are unavailable. Diagnostics cannot acquire either one.
+        synchronized(speechOutput()) {
+            for(int i=0;i<frames;i++) {
+                short[] frame=pcm(samples,10+i);OmiBle.pcm(frame);expected.write(little(frame));
+            }
+            android.os.SystemClock.fixed=1250;
+            OmiBle.pcm(rejected);
+            check(Recordings.audioGate.getCount()==1 && Recordings.audio.isEmpty(),"rejection captured while writer is still blocked");
+            check(OmiCaptureService.active && OmiBle.stops== (reason>=5?0:1),
+                    "only malformed PCM fences BLE; capacity keeps the archive and transport owner alive");
+            snapshot=dumpActivity();numericOnly(snapshot);
+            check(value(snapshot,"omi_queue_rejection")==1 && value(snapshot,"rejection_reason")==reason
+                    && value(snapshot,"queued_bytes")==frames*samples*2 && value(snapshot,"queued_events")==frames
+                    && value(snapshot,"input_samples")== (rejected==null?-1:rejected.length) && value(snapshot,"queue_closed")==0,
+                    "exact rejection, not post-Stop closed/cleared queue state");
+            check(value(snapshot,"consumer_phase")==3 && value(snapshot,"consumer_phase_age_ms")==250
+                    && value(snapshot,"append_recent_ms")==-1 && value(snapshot,"append_max_ms")==-1,
+                    "blocked first append captured without inventing completed duration");
+            check(dumpService().contains(snapshot),"service and Activity expose identical retained snapshot");
+            OmiBle.instance.listener.onPcm(pcm(1,88));
+            check(dumpActivity().equals(snapshot),"paused or fenced callback cannot overwrite failed-offer evidence");
+        }
+        OmiPcmQueue.Rejection saved=incoming.lastRejection();
+        if(reason>=5) stop(); // Capacity itself is no longer a terminal event.
+        android.os.SystemClock.fixed=1400;release(Recordings.audioGate);finished();
+        check(Arrays.equals(Recordings.segmentAudio("fixture-1"),expected.toByteArray()),"all and only accepted-prefix bytes saved once, in exact order");
+        check("error".equals(Recordings.status)== (reason<5)
+                && Recordings.text.stream().anyMatch(t->t.startsWith("[Omi audio gap")),
+                "malformed PCM stays terminal; capacity prefix is saved with ordered gap");
+        check(!OmiCaptureService.state.contains("queue overflow"),"capacity is recoverable and invalid PCM is not mislabeled overflow");
+        check(incoming.lastRejection()==saved && dumpActivity().equals(snapshot),"queue scrub and teardown cannot erase/recompute postmortem");
+        check(value(liveConsumer(),"consumer_phase")==13 && value(liveConsumer(),"append_max_ms")==400,
+                "completed metrics update independently from frozen rejection snapshot");
+        check(field(service,"owner")==null,"retained diagnostics do not retain lifecycle ownership");
+        service.onDestroy();service=new OmiCaptureService();service.onCreate();
+        check(dumpActivity().equals(snapshot) && dumpService().contains(snapshot),"new service and activity can read prior process-local postmortem");
+    }
+    static void consumerTiming() throws Exception {
+        android.os.SystemClock.fixed=1000;ready();
+        until(()->value(liveConsumer(),"consumer_phase")==2);
+        numericOnly(liveConsumer());
+        for(int i=0;i<3;i++) {
+            Recordings.audioGate=new CountDownLatch(1);Recordings.audioEntered=new CountDownLatch(1);
+            if(i==2)Recordings.failAudioAt=2;
+            OmiBle.pcm(pcm(100,40+i));await(Recordings.audioEntered);
+            long duration=i==0?41:i==1?17:9;
+            android.os.SystemClock.fixed+=duration;
+            String blocked=liveConsumer();
+            check(value(blocked,"consumer_phase")==3 && value(blocked,"consumer_phase_age_ms")==duration,"phase age describes in-flight append");
+            check(value(blocked,"append_recent_ms")== (i==0?-1:i==1?41:17),"recent measures only completed append attempts");
+            release(Recordings.audioGate);
+            final long expected=duration;
+            until(()->value(liveConsumer(),"append_recent_ms")==expected);
+            check(value(liveConsumer(),"append_max_ms")==41,"maximum retains earlier slower append");
+        }
+        finished();
+        check(Recordings.total()==400 && "error".equals(Recordings.status),"timing failed append neither retries nor changes storage policy");
+        check(dumpActivity().equals("omi_queue_rejection=0"),"non-queue errors do not manufacture a rejection");
     }
     static void slowAsr() throws Exception {
         PreviewRecognizer.acceptGate=new CountDownLatch(1);ready();OmiBle.pcm(pcm(1920,3));await(PreviewRecognizer.acceptEntered);

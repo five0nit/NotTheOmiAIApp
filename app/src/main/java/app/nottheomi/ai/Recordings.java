@@ -47,7 +47,7 @@ import javax.crypto.spec.GCMParameterSpec;
  * stream plaintext to an output chosen by the user; the caller owns/closes that output.
  */
 public final class Recordings {
-    public static final long MAX_AUDIO_BYTES = 2L * 1024 * 1024 * 1024;
+    public static final long MAX_AUDIO_BYTES = 15_000_000_000L; // 15 GB retained PCM across the library.
     public static final long FREE_SPACE_RESERVE_BYTES = 128L * 1024 * 1024;
     public static final int SAMPLE_RATE = 16000;
     public static final int MAX_CHUNK_BYTES = SAMPLE_RATE * 2;
@@ -688,19 +688,32 @@ public final class Recordings {
         if (out == null) throw new IllegalArgumentException("Output is required.");
         Metadata metadata = acquireReader(id);
         try {
-            // Standard RIFF PCM16 little-endian, mono 16kHz; <=2 GiB remains within RIFF limits.
-            ByteBuffer header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN);
-            header.put("RIFF".getBytes(StandardCharsets.US_ASCII));
-            header.putInt((int) (36 + metadata.bytes));
-            header.put("WAVEfmt ".getBytes(StandardCharsets.US_ASCII));
-            header.putInt(16).putShort((short) 1).putShort((short) 1);
-            header.putInt(SAMPLE_RATE).putInt(SAMPLE_RATE * 2);
-            header.putShort((short) 2).putShort((short) 16);
-            header.put("data".getBytes(StandardCharsets.US_ASCII));
-            header.putInt((int) metadata.bytes);
-            out.write(header.array());
+            out.write(wavHeader(metadata.bytes));
             streamAudio(metadata, out::write);
         } finally { releaseReader(id); }
+    }
+
+    static byte[] wavHeader(long bytes) {
+        if (bytes < 0 || bytes > MAX_AUDIO_BYTES || (bytes & 1) != 0) {
+            throw new IllegalArgumentException("Invalid PCM byte count.");
+        }
+        // RIFF lengths are unsigned 32-bit; RF64 keeps larger exports lossless.
+        boolean rf64 = bytes > 0xffff_ffffL - 36;
+        ByteBuffer header = ByteBuffer.allocate(rf64 ? 80 : 44).order(ByteOrder.LITTLE_ENDIAN);
+        header.put((rf64 ? "RF64" : "RIFF").getBytes(StandardCharsets.US_ASCII));
+        header.putInt(rf64 ? -1 : (int) (36 + bytes));
+        header.put("WAVE".getBytes(StandardCharsets.US_ASCII));
+        if (rf64) {
+            header.put("ds64".getBytes(StandardCharsets.US_ASCII));
+            header.putInt(28).putLong(72 + bytes).putLong(bytes).putLong(bytes / 2).putInt(0);
+        }
+        header.put("fmt ".getBytes(StandardCharsets.US_ASCII));
+        header.putInt(16).putShort((short) 1).putShort((short) 1);
+        header.putInt(SAMPLE_RATE).putInt(SAMPLE_RATE * 2);
+        header.putShort((short) 2).putShort((short) 16);
+        header.put("data".getBytes(StandardCharsets.US_ASCII));
+        header.putInt(rf64 ? -1 : (int) bytes);
+        return header.array();
     }
 
     public void forEachPcm(String id, PcmConsumer consumer) throws Exception {
@@ -1083,7 +1096,7 @@ public final class Recordings {
     private void checkCapacity(long retained, long added) throws StorageLimitException {
         if (retained < 0 || added < 0 || retained > MAX_AUDIO_BYTES
                 || added > MAX_AUDIO_BYTES - retained) {
-            throw new StorageLimitException("The 2 GiB audio limit has been reached. "
+            throw new StorageLimitException("The 15 GB audio limit has been reached. "
                     + "Export and explicitly delete a recording to free space; nothing was deleted.");
         }
         checkFreeSpace(added);

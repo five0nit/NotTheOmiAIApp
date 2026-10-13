@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+ <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+ <uses-permission android:name="android.permission.CAMERA"/>
+ <uses-feature android:name="android.hardware.camera" android:required="false"/>
+ <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+ <uses-feature android:name="android.hardware.camera.flash" android:required="false"/>
  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
@@ -26,5 +31,8 @@
   <service android:name=".OmiCaptureService" android:exported="false" android:foregroundServiceType="connectedDevice" android:stopWithTask="false"/>
   <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="microphone" android:stopWithTask="false"/>
   <service android:name=".RefinementJobService" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true"/>
+  <service android:name=".OmiNotificationListener" android:label="Omi notification vibrations" android:exported="true" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+   <intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter>
+  </service>
  </application>
 </manifest>

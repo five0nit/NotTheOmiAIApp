@@ -481,7 +481,11 @@ public final class RecordingsTest extends AndroidTestCase {
 
     public void testQuotaPredicateAtExactBoundariesAndOverflow() {
         long reserve = Recordings.FREE_SPACE_RESERVE_BYTES + 1024L * 1024L;
-        assertEquals(2147483648L, Recordings.MAX_AUDIO_BYTES);
+        assertEquals(15_000_000_000L, Recordings.MAX_AUDIO_BYTES);
+        assertTrue(Recordings.capacityAllows(2L * 1024 * 1024 * 1024, 32000, Long.MAX_VALUE));
+        assertTrue(Recordings.capacityAllows(4L * 1024 * 1024 * 1024, 32000, Long.MAX_VALUE));
+        assertTrue(Recordings.capacityAllows(Recordings.MAX_AUDIO_BYTES, 0, Long.MAX_VALUE));
+        assertFalse(Recordings.capacityAllows(Recordings.MAX_AUDIO_BYTES + 1, 0, Long.MAX_VALUE));
         assertEquals(134217728L, Recordings.FREE_SPACE_RESERVE_BYTES);
         assertTrue(Recordings.capacityAllows(0, 32000, reserve + 32000));
         assertFalse(Recordings.capacityAllows(0, 32000, reserve + 31999));
@@ -493,6 +497,46 @@ public final class RecordingsTest extends AndroidTestCase {
         assertFalse(Recordings.capacityAllows(0, Long.MAX_VALUE, Long.MAX_VALUE));
         assertFalse(Recordings.capacityAllows(0, 0, reserve - 1));
         assertTrue(Recordings.capacityAllows(0, 0, reserve));
+    }
+
+    public void testWavHeadersAcrossRiffAndRf64Boundaries() {
+        long largestRiffPcm = (0xffff_ffffL - 36) & ~1L;
+        for (long bytes : new long[]{0, 640, 2L * 1024 * 1024 * 1024, largestRiffPcm,
+                largestRiffPcm + 2, 4L * 1024 * 1024 * 1024, Recordings.MAX_AUDIO_BYTES}) {
+            boolean rf64 = bytes > largestRiffPcm;
+            byte[] value = Recordings.wavHeader(bytes);
+            ByteBuffer header = ByteBuffer.wrap(value).order(ByteOrder.LITTLE_ENDIAN);
+            assertEquals(rf64 ? 80 : 44, value.length);
+            assertEquals(rf64 ? "RF64" : "RIFF", new String(value, 0, 4, StandardCharsets.US_ASCII));
+            assertEquals("WAVE", new String(value, 8, 4, StandardCharsets.US_ASCII));
+            assertEquals(rf64 ? 0xffff_ffffL : bytes + 36, Integer.toUnsignedLong(header.getInt(4)));
+            int fmt = rf64 ? 48 : 12;
+            if (rf64) {
+                assertEquals("ds64", new String(value, 12, 4, StandardCharsets.US_ASCII));
+                assertEquals(28, header.getInt(16));
+                assertEquals(bytes + 72, header.getLong(20));
+                assertEquals(bytes, header.getLong(28));
+                assertEquals(bytes / 2, header.getLong(36));
+                assertEquals(0, header.getInt(44));
+            }
+            assertEquals("fmt ", new String(value, fmt, 4, StandardCharsets.US_ASCII));
+            assertEquals(16, header.getInt(fmt + 4));
+            assertEquals(1, header.getShort(fmt + 8));
+            assertEquals(1, header.getShort(fmt + 10));
+            assertEquals(16000, header.getInt(fmt + 12));
+            assertEquals(32000, header.getInt(fmt + 16));
+            assertEquals(2, header.getShort(fmt + 20));
+            assertEquals(16, header.getShort(fmt + 22));
+            assertEquals("data", new String(value, fmt + 24, 4, StandardCharsets.US_ASCII));
+            assertEquals(rf64 ? 0xffff_ffffL : bytes, Integer.toUnsignedLong(header.getInt(fmt + 28)));
+        }
+    }
+
+    public void testWavHeaderRejectsInvalidAndOverQuotaLengths() throws Exception {
+        expectInvalid(() -> Recordings.wavHeader(-2));
+        expectInvalid(() -> Recordings.wavHeader(1));
+        expectInvalid(() -> Recordings.wavHeader(Recordings.MAX_AUDIO_BYTES + 2));
+        expectInvalid(() -> Recordings.wavHeader(Long.MAX_VALUE));
     }
 
     public void testCallbackDoesNotHoldStoreMonitorAndDeletionLeaseWorks() throws Exception {

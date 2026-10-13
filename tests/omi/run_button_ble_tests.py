@@ -55,11 +55,12 @@ SOURCES = {
             public static long elapsed() { return now; }
             public static void reset() { queue.clear(); now = sequence = 0; }
             public static void drain() { advance(0); }
+            public static void elapseWithoutDispatch(long ms) { now += ms; }
             public static void advance(long ms) {
                 long end = now + ms; int bound = 10000;
                 while (!queue.isEmpty() && queue.peek().when <= end) {
                     if (--bound == 0) throw new AssertionError("unbounded handler loop");
-                    Entry e = queue.remove(); now = e.when; e.task.run();
+                    Entry e = queue.remove(); now = Math.max(now, e.when); e.task.run();
                 }
                 now = end;
             }
@@ -279,7 +280,7 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(textwrap.dedent(text))
             stubs.append(path)
-        production = [src / 'app/nottheomi/ai/OmiBle.java', src / 'app/nottheomi/ai/ButtonEvent.java']
+        production = [src / 'app/nottheomi/ai/OmiBle.java', src / 'app/nottheomi/ai/ButtonEvent.java', src / 'app/nottheomi/ai/ButtonGestures.java', src / 'app/nottheomi/ai/HapticPatterns.java']
         production += sorted((src / 'org/concentus').glob('*.java'))
         subprocess.run(['javac', '-d', str(work), *map(str, stubs), *map(str, production),
                         str(ROOT / 'tests/omi/ButtonBleTest.java')], check=True, timeout=120)

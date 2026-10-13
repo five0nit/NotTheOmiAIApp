@@ -146,19 +146,20 @@ public final class LocalPlayback {
             checkCancelled(playback);
             track.play();
             final AudioTrack sink = track;
+            final PlaybackHead head = new PlaybackHead();
             final long[] written = {0};
             source.forEachPcm(playback.id, pcm -> {
-                writePcm(playback, sink, pcm);
+                writePcm(playback, sink, pcm, head);
                 written[0] += pcm.length / 2;
             });
             // Streaming tracks wait for a full initial buffer, even after play().
             // Pad short recordings in memory; drain only their actual audio frames.
             if (written[0] > 0 && written[0] < sink.getBufferSizeInFrames()) {
                 writePcm(playback, sink,
-                        new byte[(int) (sink.getBufferSizeInFrames() - written[0]) * 2]);
+                        new byte[(int) (sink.getBufferSizeInFrames() - written[0]) * 2], head);
             }
             // Do not truncate the last queued audio buffer on natural completion.
-            while (Integer.toUnsignedLong(track.getPlaybackHeadPosition()) < written[0]) {
+            while (head.update(track.getPlaybackHeadPosition()) < written[0]) {
                 checkCancelled(playback);
                 Thread.sleep(20);
             }
@@ -201,15 +202,30 @@ public final class LocalPlayback {
         }
     }
 
-    private void writePcm(Playback playback, AudioTrack sink, byte[] pcm)
+    private void writePcm(Playback playback, AudioTrack sink, byte[] pcm, PlaybackHead head)
             throws InterruptedException {
         int at = 0;
         while (at < pcm.length) {
             checkCancelled(playback);
             int count = sink.write(pcm, at, pcm.length - at, AudioTrack.WRITE_NON_BLOCKING);
             if (count < 0) throw new IllegalStateException("Audio playback failed");
+            // Sample while streaming, including backpressure, so earlier wraps aren't lost.
+            head.update(sink.getPlaybackHeadPosition());
             if (count == 0) Thread.sleep(10);
             else at += count;
+        }
+    }
+
+    /** One counter per unflushed track; sample before 2^32 frames can pass unseen. */
+    static final class PlaybackHead {
+        private long previous;
+        private long frames;
+
+        long update(int position) {
+            long current = Integer.toUnsignedLong(position);
+            frames += (current - previous) & 0xffff_ffffL;
+            previous = current;
+            return frames;
         }
     }
 

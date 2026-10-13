@@ -27,6 +27,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import java.util.HashSet;
 import java.util.List;
@@ -42,12 +43,21 @@ public final class OmiSettingsActivity extends Activity {
     private LinearLayout page, devices;
     private TextView selected, scanStatus, live, led, desired, presses, shortcutStatus;
     private Button scanButton, forgetButton, readButton, applyButton, controlsButton, singleTarget, doubleTarget;
-    private Spinner singleAction, doubleAction;
+    private Spinner singleAction, doubleAction, tripleAction, quadrupleAction, quintupleAction, profileSpinner;
+    private Button tripleTarget, quadrupleTarget, quintupleTarget, torchPermission;
+    private TextView torchStatus;
+    private NotificationControls notificationControls;
+    private final java.util.Map<Spinner,Integer> syncedSelections=new java.util.IdentityHashMap<>();
+    private String pendingProfile="everyday";
     private int pendingGesture;
     private ComponentName pendingProvider;
     private boolean pendingControls;
-    private static final int SHORTCUT_REQUEST=41, CONTROLS_PERMISSION=42, NOTIFICATION_PERMISSION=43;
+    private static final int SHORTCUT_REQUEST=41, CONTROLS_PERMISSION=42, NOTIFICATION_PERMISSION=43, TORCH_PERMISSION=44;
     private SeekBar brightness;
+    private Switch notificationToggle;
+    private TextView notificationStatus;
+    private Button notificationTest, notificationAccess;
+    private boolean bindingNotificationToggle;
     private OmiBle scanner;
     private boolean resumed, scanning;
     private int scanGeneration;
@@ -86,6 +96,26 @@ public final class OmiSettingsActivity extends Activity {
         controlsButton=addButton("Connect for buttons — no recording",this::toggleControls);
         controlsButton.setTag("omi.controls.connect");
         label("Button-only mode stays connected to your Omi while idle. No audio is saved until you choose Start recording or Start / stop recording. Stop & save returns to button-only mode; Disconnect buttons ends the idle connection.",13,MUTED);
+        label("Notification vibrations",22,INK);
+        label("Configurable pulses on supported modern Omi firmware for new alerting notifications. Off by default. Works on your existing recording or button-only connection; never starts recording or connects by itself. Silent notifications, ongoing status and duplicates are skipped; Do Not Disturb is respected. Bursts are limited to one pattern per 1.5 seconds; busy or disconnected events are skipped, never replayed.",13,MUTED);
+        notificationToggle=new Switch(this);notificationToggle.setText("Notification vibrations");
+        notificationToggle.setTextOff("Off");notificationToggle.setTextOn("On");notificationToggle.setShowText(true);
+        notificationToggle.setTextSize(16);notificationToggle.setTextColor(INK);notificationToggle.setMinHeight(dp(56));
+        notificationToggle.setTag("omi.notifications.enabled");notificationToggle.setSaveEnabled(false);
+        notificationToggle.setChecked(NotificationVibrations.enabled(this));
+        page.addView(notificationToggle,new LinearLayout.LayoutParams(-1,-2));
+        notificationStatus=label("",14,INK);notificationStatus.setTag("omi.notifications.status");
+        notificationAccess=addButton("Notification access settings",this::explainNotificationAccess);
+        notificationAccess.setTag("omi.notifications.access");
+        notificationTest=addButton("Test selected pattern on Omi",()->OmiCaptureService.requestNotificationPulse(NotificationVibrations.defaultPattern(this),NotificationVibrations.currentGuard(this)));
+        notificationTest.setTag("omi.notifications.test");
+        notificationToggle.setOnCheckedChangeListener((button,enabled)->{
+            if(bindingNotificationToggle)return;
+            NotificationVibrations.setEnabled(this,enabled);refreshNotificationSettings();
+            if(enabled&&!NotificationVibrations.accessGranted(this))explainNotificationAccess();
+        });
+        label("Android notification access is optional and separate from this switch. The app uses notification event metadata only, not message text. Nothing is saved, uploaded or sent to your Omi except the vibration command. Turning this switch off stops future pulses even if access stays granted.",13,MUTED);
+        notificationControls=NotificationControls.attach(this,page);
         label("Light brightness",22,INK);
         label("Available on an existing recording or button-only connection, if your firmware supports it. First read the current value. Changing the wearable light does not change recording mode.",13,MUTED);
         led=label("",14,INK);readButton=addButton("Read current brightness",OmiCaptureService::readLedBrightness);
@@ -103,11 +133,42 @@ public final class OmiSettingsActivity extends Activity {
                 .setNegativeButton("Cancel",null).setPositiveButton("Apply",(d,w)->OmiCaptureService.setLedBrightness(value)).show();
         });
         label("Button presses",22,INK);
-        label("Single and double press have separate settings. Changes apply to the next press, including during recording. A recording or button-only connection is required. Long press / power actions stay with the device; these settings do not rewrite firmware.",13,MUTED);
+        label("Each press count has its own action. Changes apply to the next press, including during recording. A recording or button-only connection is required. Long press / power actions stay with the device; these settings do not rewrite firmware.",13,MUTED);
+        label("Control profile",16,INK);
+        profileSpinner=new Spinner(this,Spinner.MODE_DROPDOWN);
+        profileSpinner.setTag("omi.controls.profile");profileSpinner.setContentDescription("Active control profile");profileSpinner.setSaveEnabled(false);
+        ArrayAdapter<String> profiles=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,ButtonActions.PROFILE_LABELS);
+        profiles.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);profileSpinner.setAdapter(profiles);
+        int selectedProfile=java.util.Arrays.asList(ButtonActions.PROFILE_IDS).indexOf(ButtonActions.profile(this));
+        profileSpinner.setSelection(selectedProfile,false);page.addView(profileSpinner,new LinearLayout.LayoutParams(-1,dp(54)));
+        profileSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+            public void onItemSelected(AdapterView<?> parent,View view,int position,long id){
+                if(position<0||position>=ButtonActions.PROFILE_IDS.length)return;
+                String chosen=ButtonActions.PROFILE_IDS[position];
+                if(!chosen.equals(ButtonActions.profile(OmiSettingsActivity.this))){ButtonActions.setProfile(OmiSettingsActivity.this,chosen);syncActions();refresh();}
+            }
+            public void onNothingSelected(AdapterView<?> parent){}
+        });
+        label("Everyday keeps your existing mappings. Meeting and Music keep independent mappings and phone shortcuts. Music starts with play/pause and next track. Switching profiles cancels pending gestures. Notification settings are shared across profiles.",13,MUTED);
         singleAction=actionSpinner(ButtonEvent.SINGLE,"Single press");
         singleTarget=addButton("",()->chooseTarget(ButtonEvent.SINGLE));singleTarget.setTag("omi.target.single");
         doubleAction=actionSpinner(ButtonEvent.DOUBLE,"Double press");
         doubleTarget=addButton("",()->chooseTarget(ButtonEvent.DOUBLE));doubleTarget.setTag("omi.target.double");
+        tripleAction=actionSpinner(ButtonEvent.TRIPLE,"Triple press");
+        tripleTarget=addButton("",()->chooseTarget(ButtonEvent.TRIPLE));tripleTarget.setTag("omi.target.triple");
+        quadrupleAction=actionSpinner(ButtonEvent.QUADRUPLE,"Four presses");
+        quadrupleTarget=addButton("",()->chooseTarget(ButtonEvent.QUADRUPLE));quadrupleTarget.setTag("omi.target.quadruple");
+        quintupleAction=actionSpinner(ButtonEvent.QUINTUPLE,"Five presses");
+        quintupleTarget=addButton("",()->chooseTarget(ButtonEvent.QUINTUPLE));quintupleTarget.setTag("omi.target.quintuple");
+        label("Four/five start with No action. Triple-only keeps its existing 650 ms grouping. Assigning four or five extends the grouping window to 950 or 1250 ms from the first received tap event; lower counts wait for that window so they do not fire first. Separate nearby presses can combine. No higher actions keeps original single/double timing.",13,MUTED);
+        label("Smart action bookmarks while recording and plays/pauses music while idle. Pause music → start recording requests Pause first, then starts recording only when idle; it never toggles an active recording off. Android does not acknowledge whether the player actually paused.",13,MUTED);
+        label("Phone flashlight",22,INK);
+        torchStatus=label("",14,INK);torchStatus.setTag("omi.torch.status");
+        torchPermission=addButton("Allow flashlight permission",()->{
+            if(!TorchControl.permissionGranted(this))requestPermissions(new String[]{Manifest.permission.CAMERA},TORCH_PERMISSION);
+        });torchPermission.setTag("omi.torch.permission");
+        label("Choose Flashlight toggle for any press count. Camera permission is optional and used only for the phone torch; no photos or camera stream. Permission, camera availability and the current torch state are checked before a toggle. Phone/OS background restrictions still apply.",13,MUTED);
+        label("Wearable shake unavailable: inspected stock firmware does not expose a working motion stream. Phone movement is not used as a substitute. Long hold stays reserved for wearable power-off.",13,MUTED).setTag("omi.motion.status");
         label("Music controls act directly, like a headset button — no app opening or notification tap. Android chooses the current media player; it must support media buttons. Pause music never requests Play. Start / stop recording starts when idle and stops and saves when recording.",13,MUTED);
         label("Phone shortcuts can open launchable apps or supported legacy shortcut providers. Android does not let this app list every launcher-managed private/dynamic shortcut. Only exported, permitted activities in the chosen app are supported; no services, broadcasts, URI permission grants or shell commands. Other apps may use the network.",13,MUTED);
         label("For Phone shortcut only: when this app is visibly open, it requests the selected activity. In the background or on the lock screen, press once then tap the phone notification to run it. Recording and music actions do not need that tap.",13,MUTED);
@@ -116,7 +177,7 @@ public final class OmiSettingsActivity extends Activity {
         label("Compatibility: stock Omi BLE with 16 kHz Opus audio. Unsupported codecs and missing controls are reported, never guessed. Gaps stop and save rather than silently joining missing audio.",13,MUTED);
         refresh();
     }
-    @Override protected void onResume(){super.onResume();ButtonActions.onResume(this);resumed=true;syncSpinner(singleAction,ButtonEvent.SINGLE);syncSpinner(doubleAction,ButtonEvent.DOUBLE);refresh();main.post(ticker);if(initialScan){initialScan=false;main.post(this::scan);}}
+    @Override protected void onResume(){super.onResume();ButtonActions.onResume(this);resumed=true;syncActions();refresh();main.post(ticker);if(initialScan){initialScan=false;main.post(this::scan);}}
     @Override protected void onPause(){ButtonActions.onPause(this);resumed=false;main.removeCallbacks(ticker);stopScan();super.onPause();}
     @Override protected void onDestroy(){main.removeCallbacksAndMessages(null);super.onDestroy();}
     private int dp(int x){return Math.round(x*getResources().getDisplayMetrics().density);}
@@ -140,7 +201,36 @@ public final class OmiSettingsActivity extends Activity {
         applyButton.setEnabled(writable);brightness.setEnabled(writable);
         refreshAction(singleAction,singleTarget,ButtonEvent.SINGLE);
         refreshAction(doubleAction,doubleTarget,ButtonEvent.DOUBLE);
+        if(tripleTarget!=null)refreshAction(tripleAction,tripleTarget,ButtonEvent.TRIPLE);
+        if(quadrupleTarget!=null)refreshAction(quadrupleAction,quadrupleTarget,ButtonEvent.QUADRUPLE);
+        if(quintupleTarget!=null)refreshAction(quintupleAction,quintupleTarget,ButtonEvent.QUINTUPLE);
+        if(profileSpinner!=null)profileSpinner.setEnabled(pendingProvider==null);
+        if(torchStatus!=null){torchStatus.setText(TorchControl.status(this));torchPermission.setEnabled(!TorchControl.permissionGranted(this));}
         presses.setText(OmiCaptureService.lastButton);
+        refreshNotificationSettings();
+    }
+
+    private void refreshNotificationSettings(){
+        if(notificationToggle==null)return;
+        boolean enabled=NotificationVibrations.enabled(this),access=NotificationVibrations.accessGranted(this);
+        bindingNotificationToggle=true;
+        try{notificationToggle.setChecked(enabled);}finally{bindingNotificationToggle=false;}
+        notificationStatus.setText(!enabled?"Off — no notification vibrations on your Omi":
+            !access?"On — waiting for Android notification access":
+            !connectionBusy()?"On — connect your Omi for buttons or recording first":
+            "On — "+OmiCaptureService.notificationPulseStatus);
+        notificationTest.setEnabled(enabled&&access&&connectionBusy());
+        notificationAccess.setText(access?"Manage notification access":"Allow notification access");
+        notificationTest.setText("Test "+HapticPatterns.label(NotificationVibrations.defaultPattern(this)).toLowerCase(java.util.Locale.ROOT)+" on Omi");
+        if(notificationControls!=null)notificationControls.refresh();
+    }
+    private void explainNotificationAccess(){
+        new AlertDialog.Builder(this).setTitle("Allow wearable notification alerts?")
+            .setMessage("Android's notification-access screen grants broad access. NotTheOmiAIApp uses only event metadata to trigger your selected pattern on your Omi; it does not read or retain message text. Enable access for NotTheOmiAIApp there, then return. You can turn vibrations off here at any time without changing recording or phone vibration settings.")
+            .setNegativeButton("Not now",null).setPositiveButton("Open settings",(dialog,which)->{
+                try{NotificationVibrations.openAccessSettings(this);}
+                catch(RuntimeException unavailable){notificationStatus.setText("Open Android Settings → Notification access and select NotTheOmiAIApp, then return.");}
+            }).show();
     }
 
     private static boolean connectionBusy(){return OmiCaptureService.active||OmiCaptureService.controlsActive;}
@@ -153,7 +243,7 @@ public final class OmiSettingsActivity extends Activity {
         TextView heading=label(title,16,INK);
         Spinner spinner=new Spinner(this,Spinner.MODE_DROPDOWN);
         spinner.setId(View.generateViewId());heading.setLabelFor(spinner.getId());
-        spinner.setTag(event==ButtonEvent.SINGLE?"omi.action.single":"omi.action.double");
+        spinner.setTag("omi.action."+ButtonEvent.key(event));
         spinner.setContentDescription(title+" action");spinner.setSaveEnabled(false);
         ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,ButtonActions.LABELS);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);spinner.setAdapter(adapter);
@@ -162,6 +252,9 @@ public final class OmiSettingsActivity extends Activity {
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
             public void onItemSelected(AdapterView<?> parent,View view,int position,long id){
                 if(position<0||position>=ButtonActions.IDS.length)return;
+                if(position!=spinner.getSelectedItemPosition())return;
+                Integer expected=syncedSelections.remove(spinner);
+                if(expected!=null&&expected==position)return;
                 String chosen=ButtonActions.IDS[position];
                 if(!chosen.equals(ButtonActions.action(OmiSettingsActivity.this,event)))
                     ButtonActions.setAction(OmiSettingsActivity.this,event,chosen);
@@ -172,8 +265,14 @@ public final class OmiSettingsActivity extends Activity {
         return spinner;
     }
     private void syncSpinner(Spinner spinner,int event){
+        if(spinner==null)return;
         int index=ButtonActions.index(ButtonActions.action(this,event));
-        if(spinner.getSelectedItemPosition()!=index)spinner.setSelection(index,false);
+        if(spinner.getSelectedItemPosition()!=index){syncedSelections.put(spinner,index);spinner.setSelection(index,false);}
+    }
+    private void syncActions(){
+        syncSpinner(singleAction,ButtonEvent.SINGLE);syncSpinner(doubleAction,ButtonEvent.DOUBLE);
+        syncSpinner(tripleAction,ButtonEvent.TRIPLE);syncSpinner(quadrupleAction,ButtonEvent.QUADRUPLE);syncSpinner(quintupleAction,ButtonEvent.QUINTUPLE);
+        if(profileSpinner!=null){int index=java.util.Arrays.asList(ButtonActions.PROFILE_IDS).indexOf(ButtonActions.profile(this));if(profileSpinner.getSelectedItemPosition()!=index)profileSpinner.setSelection(index,false);}
     }
     private void refreshAction(Spinner spinner,Button target,int event){
         // Never reset selection on the status ticker: a user selection may await its layout callback.
@@ -189,7 +288,7 @@ public final class OmiSettingsActivity extends Activity {
         try{choices=ButtonActions.choices(this);}catch(RuntimeException unavailable){shortcutStatus.setText("Phone apps could not be listed. Your previous target is unchanged.");return;}
         if(choices.isEmpty()){shortcutStatus.setText("No supported exported shortcut providers or launchable apps are available. Your previous target is unchanged.");return;}
         String[] labels=new String[choices.size()];for(int i=0;i<labels.length;i++)labels[i]=choices.get(i).toString();
-        new AlertDialog.Builder(this).setTitle(event==ButtonEvent.SINGLE?"Single press phone shortcut":"Double press phone shortcut")
+        new AlertDialog.Builder(this).setTitle(ButtonEvent.label(event)+" phone shortcut")
             .setItems(labels,(dialog,index)->beginTargetSelection(event,choices.get(index)))
             .setNegativeButton("Cancel",null).show();
     }
@@ -197,11 +296,11 @@ public final class OmiSettingsActivity extends Activity {
         if(!ButtonActions.gesture(event)||choice==null||pendingProvider!=null)return;
         if(!choice.provider){
             boolean saved=ButtonActions.saveTarget(this,event,choice.intent(),choice.label,choice.component.getPackageName());
-            shortcutStatus.setText(saved?"Phone app selected for "+(event==ButtonEvent.SINGLE?"single":"double")+" press.":"App unavailable or unsupported. Your previous target is unchanged.");
+            shortcutStatus.setText(saved?"Phone app selected for "+ButtonEvent.label(event)+".":"App unavailable or unsupported. Your previous target is unchanged.");
             refresh();return;
         }
         if(!ButtonActions.providerAvailable(this,choice.component)){shortcutStatus.setText("Shortcut provider unavailable. Your previous target is unchanged.");return;}
-        pendingGesture=event;pendingProvider=choice.component;
+        pendingGesture=event;pendingProvider=choice.component;pendingProfile=ButtonActions.profile(this);
         try{startActivityForResult(choice.intent(),SHORTCUT_REQUEST);}
         catch(RuntimeException unavailable){pendingGesture=0;pendingProvider=null;shortcutStatus.setText("Shortcut provider could not open. Your previous target is unchanged.");}
         refresh();
@@ -210,20 +309,23 @@ public final class OmiSettingsActivity extends Activity {
         super.onActivityResult(request,result,data);
         if(request!=SHORTCUT_REQUEST)return;
         int event=pendingGesture;ComponentName provider=pendingProvider;pendingGesture=0;pendingProvider=null;
-        boolean saved=ButtonActions.acceptProviderResult(this,event,provider,result,data);
-        shortcutStatus.setText(saved?"Phone shortcut selected for "+(event==ButtonEvent.SINGLE?"single":"double")+" press.":
+        boolean saved=pendingProfile.equals(ButtonActions.profile(this))&&ButtonActions.acceptProviderResult(this,event,provider,result,data);
+        shortcutStatus.setText(saved?"Phone shortcut selected for "+ButtonEvent.label(event)+".":
             result==RESULT_CANCELED?"Shortcut selection cancelled. Your previous target is unchanged.":"Unsupported shortcut result. Your previous target is unchanged.");
         refresh();
     }
     @Override protected void onSaveInstanceState(Bundle state){
         super.onSaveInstanceState(state);
         state.putInt("button.pending_gesture",pendingGesture);
+        state.putString("button.pending_profile",pendingProfile);
         if(pendingProvider!=null)state.putString("button.pending_provider",pendingProvider.flattenToString());
         state.putBoolean("button.pending_controls",pendingControls);
     }
     void restorePending(Bundle state){
-        pendingGesture=0;pendingProvider=null;pendingControls=false;
+        pendingGesture=0;pendingProvider=null;pendingControls=false;pendingProfile="everyday";
         if(state==null)return;
+        pendingProfile=state.getString("button.pending_profile","everyday");
+        if(!java.util.Arrays.asList(ButtonActions.PROFILE_IDS).contains(pendingProfile))pendingProfile="everyday";
         int event=state.getInt("button.pending_gesture",0);String provider=state.getString("button.pending_provider","");
         if(ButtonActions.gesture(event)&&provider!=null&&provider.length()<=512){
             ComponentName component=ComponentName.unflattenFromString(provider);
@@ -305,6 +407,8 @@ public final class OmiSettingsActivity extends Activity {
         }else if(code==NOTIFICATION_PERMISSION){
             if(pendingControls&&(Build.VERSION.SDK_INT<33||checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED))continueControlsConnect();
             else{pendingControls=false;scanStatus.setText("Button-only connection not started. Allow notifications for the visible connection and tap-to-run shortcuts, then connect again.");}
+        }else if(code==TORCH_PERMISSION){
+            refresh();
         }
     }
 }

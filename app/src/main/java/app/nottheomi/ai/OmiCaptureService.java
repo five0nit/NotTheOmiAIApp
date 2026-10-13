@@ -47,6 +47,7 @@ public final class OmiCaptureService extends Service {
     public static volatile float level;
     public static volatile int battery = -1;
     public static volatile OmiBle.LedState ledState = unknownLed();
+    public static volatile String notificationPulseStatus = "Connect your Omi before testing notification vibrations";
 
     private static final Object LIFECYCLE = new Object();
     private static final String CHANNEL = "omi_capture";
@@ -65,8 +66,23 @@ public final class OmiCaptureService extends Service {
     private static final int ASR_MAX_EVENTS = 512;
     private static OmiCaptureService owner;
 
+    // Numeric diagnostic codes only. These describe the archive consumer, not ASR's
+    // internals or the cause of a stall. Stores/reads never acquire storage/output locks.
+    private static final int PHASE_IDLE = 0, PHASE_PREPARE = 1, PHASE_POLL = 2,
+            PHASE_APPEND = 3, PHASE_ROLLOVER_WAIT = 4, PHASE_SPEECH_RETIRE = 5,
+            PHASE_FINISH = 6, PHASE_CREATE = 7, PHASE_MARKER = 8,
+            PHASE_SPEECH_OUTPUT = 9, PHASE_SPEECH_DRAIN = 10,
+            PHASE_TRANSPORT_STOP = 11, PHASE_CLEANUP = 12, PHASE_DONE = 13,
+            PHASE_DISPATCH = 14;
+    // Last failed PCM offer in this process; deliberately survives service teardown
+    // and later starts. Bounded immutable numeric-only text, never archive contents.
+    private static volatile String lastQueueRejection = "omi_queue_rejection=0";
+    private volatile int consumerPhase = PHASE_IDLE;
+    private volatile long consumerPhaseAt = SystemClock.elapsedRealtime();
+    private volatile long appendRecentMs = -1, appendMaxMs = -1;
+
     private final Handler main = new Handler(Looper.getMainLooper());
-    private volatile boolean cancelled, receivedPcm, recovering, hadGap;
+    private volatile boolean cancelled, receivedPcm, recovering, hadGap, archiveBacklog;
     private volatile long lastPcmAt;
     private volatile long lastArchivedAt = -1, archivedSamples;
     private volatile long stopDeadlineNanos;
@@ -136,7 +152,7 @@ public final class OmiCaptureService extends Service {
         }
         active = true;
         RefinementJobService.pauseForCapture();
-        cancelled = receivedPcm = recovering = hadGap = false;
+        cancelled = receivedPcm = recovering = hadGap = archiveBacklog = false;
         lastPcmAt = 0;
         stopDeadlineNanos = 0;
         fatalReason = speechIssue = failureMarker = null;
@@ -148,6 +164,8 @@ public final class OmiCaptureService extends Service {
         battery = -1; ledState = unknownLed(); lastButton = "No press received";
         transport = "Disconnected";
         incoming = new OmiPcmQueue();
+        appendRecentMs = appendMaxMs = -1;
+        setConsumerPhase(PHASE_PREPARE);
         state = "Preparing offline speech model…";
         final String selected = address;
         try {
@@ -156,6 +174,7 @@ public final class OmiCaptureService extends Service {
             worker.start();
         } catch (RuntimeException | LinkageError failure) {
             state = "Omi capture could not start — open the app and check Bluetooth/notification access";
+            setConsumerPhase(PHASE_DONE);
             endForeground(); stopSelf(); worker = null; owner = null; active = false;
             RefinementJobService.schedule(this);
         }
@@ -270,11 +289,30 @@ public final class OmiCaptureService extends Service {
         long now = SystemClock.elapsedRealtime(), accepted = lastPcmAt, written = lastArchivedAt;
         out.println("omi_capture_snapshot=approximate active=" + (owner == this && active)
             + " cancelled=" + cancelled + " waiting=" + recovering + " received_pcm=" + receivedPcm
+            + " archive_backlog=" + (archiveBacklog ? 1 : 0)
             + " accepted_pcm_age_ms=" + (!receivedPcm ? -1 : Math.max(0, now-accepted))
             + " archived_samples=" + archivedSamples
             + " archive_write_age_ms=" + (written < 0 ? -1 : Math.max(0, now-written)));
+        out.println(consumerDiagnostics());
+        dumpQueueRejection(out);
         OmiBle currentBle = ble;
         if (currentBle != null) out.println(currentBle.diagnostics());
+    }
+    private void setConsumerPhase(int phase) {
+        consumerPhaseAt = SystemClock.elapsedRealtime();
+        consumerPhase = phase;
+    }
+    private String consumerDiagnostics() {
+        // Volatile reads are deliberately approximate across a concurrent phase
+        // transition. No output/storage/LIFECYCLE lock, even at a blocked commit.
+        int phase = consumerPhase;
+        long since = consumerPhaseAt;
+        return "consumer_approximate=1 consumer_phase=" + phase
+                + " consumer_phase_age_ms=" + Math.max(0, SystemClock.elapsedRealtime() - since)
+                + " append_recent_ms=" + appendRecentMs + " append_max_ms=" + appendMaxMs;
+    }
+    static void dumpQueueRejection(java.io.PrintWriter out) {
+        out.println(lastQueueRejection);
     }
     public static void requestStopCapture() {
         synchronized (LIFECYCLE) { if (owner != null) owner.stopCapture(null, null); }
@@ -285,6 +323,21 @@ public final class OmiCaptureService extends Service {
     public static void readLedBrightness() {
         synchronized (LIFECYCLE) {
             if (owner != null && !owner.cancelled && owner.ble != null) owner.ble.readLedBrightness();
+        }
+    }
+    /** Optional output on the existing owner only; never starts recording or connects. */
+    public static void requestNotificationPulse(java.util.function.BooleanSupplier allowed) {
+        requestNotificationPulse("double", allowed);
+    }
+    public static void requestNotificationPulse(String pattern, java.util.function.BooleanSupplier allowed) {
+        if (allowed == null || !allowed.getAsBoolean()) return;
+        synchronized (LIFECYCLE) {
+            if (owner == null || owner.ble == null || owner.switching ||
+                    !(controlsActive || (active && !owner.cancelled))) {
+                notificationPulseStatus = "Connect your Omi for buttons or recording first";
+                return;
+            }
+            owner.ble.requestPattern(pattern, allowed);
         }
     }
     public static void setLedBrightness(int value) {
@@ -330,8 +383,23 @@ public final class OmiCaptureService extends Service {
         @Override public void onPcm(short[] samples) {
             synchronized (LIFECYCLE) {
                 if (controls || !accepting()) return;
-                if (!incoming.offer(samples)) {
-                    stopCapture("Omi audio queue overflow or invalid PCM; earlier audio retained", GAP_MARKER);
+                // An earlier radio gap already owns this missing-audio episode,
+                // even if its marker has been consumed. Capacity still needs a
+                // fence after all accepted controls, but not another speech reset.
+                int result = incoming.offerRecovering(samples, recovering ? null : RECOVERY_MARKER);
+                if (result == OmiPcmQueue.Rejection.PAUSED) return;
+                if (result != 0) {
+                    // PCM producers are serialized by LIFECYCLE. Read the immutable
+                    // failed-offer state before Stop closes/teardown clears the queue.
+                    OmiPcmQueue.Rejection rejection = incoming.lastRejection();
+                    lastQueueRejection = "omi_queue_rejection=1 " + rejection.diagnostics()
+                            + " " + consumerDiagnostics();
+                    if (result == OmiPcmQueue.Rejection.EVENT_CAPACITY
+                            || result == OmiPcmQueue.Rejection.BYTE_CAPACITY) {
+                        // The queue installed a single reserved fence atomically.
+                        // Keep this capture's BLE owner/retry alive while storage drains.
+                        publishRecovery(true);
+                    } else stopCapture(rejection.stopReason(), GAP_MARKER);
                     return;
                 }
                 lastPcmAt = SystemClock.elapsedRealtime();
@@ -378,44 +446,72 @@ public final class OmiCaptureService extends Service {
                 if (value.contains("capture disconnected")
                         || value.startsWith("Invalid selected Bluetooth address")) {
                     stopCapture("Omi connection failed: " + transport, receivedPcm ? GAP_MARKER : null);
-                } else if (!receivedPcm) setProgress("Connecting to Omi — waiting for audio…");
+                } else {
+                    if (archiveBacklog) transport = "Omi audio paused — archive backlog draining";
+                    if (!receivedPcm) setProgress("Connecting to Omi — waiting for audio…");
+                }
             }
         }
+        @Override public boolean tripleEnabled() {
+            return !"ignore".equals(ButtonActions.action(OmiCaptureService.this, ButtonEvent.TRIPLE));
+        }
+        @Override public int maxButtonTaps() { return ButtonActions.maxButtonTaps(OmiCaptureService.this); }
+        @Override public long buttonConfigurationGeneration() { return ButtonActions.configurationGeneration(); }
         @Override public void onButton(int event) {
             synchronized (LIFECYCLE) {
                 if (accepting() && ble != null) onButton(event, ble.connectionGeneration());
             }
         }
         @Override public void onButton(int event, long generation) {
+            onButton(event, generation, buttonConfigurationGeneration());
+        }
+        @Override public void onButton(int event, long generation, long configuration) {
             synchronized (LIFECYCLE) {
                 // LONG/PRESS/RELEASE remain firmware-reserved.
-                if (!accepting() || (event != 1 && event != 2)) return;
+                if (!accepting() || !ButtonEvent.isGesture(event)
+                        || configuration != buttonConfigurationGeneration()) return;
                 OmiBle source = ble;
                 if (source == null || generation != source.connectionGeneration()) return;
-                String action = ButtonActions.action(OmiCaptureService.this, event);
+                String action = ButtonActions.resolvedAction(OmiCaptureService.this, event, !controls);
                 // Preparation is cancelled explicitly in the UI; legacy capture
                 // gestures arm only after actual PCM. Media stays independent.
                 if (!controls && !receivedPcm && ("bookmark".equals(action)
                         || "stop".equals(action) || "toggle".equals(action))) return;
-                lastButton = (event == 1 ? "Single" : "Double") + " press — " + action;
+                lastButton = ButtonEvent.label(event) + " — " + action;
                 // Archive controls share the PCM FIFO; UI/media work may use main.
                 if (!controls && ("stop".equals(action) || "toggle".equals(action))) {
                     stopCapture(null, null); return;
                 }
                 if (!controls && "bookmark".equals(action)) {
-                    if (receivedPcm && !incoming.bookmark(BOOKMARK))
-                        stopCapture("Omi control queue overflow; earlier audio retained", GAP_MARKER);
+                    if (receivedPcm && !incoming.bookmark(BOOKMARK)) {
+                        // Nothing after a reserved fence may overtake it. Rejection
+                        // is visible and bounded; previously accepted controls survive.
+                        if (incoming.paused()) lastButton = ButtonEvent.label(event)
+                                + " — bookmark not saved: archive backlog; try again after audio resumes";
+                        else stopCapture("Omi control queue overflow; earlier audio retained", GAP_MARKER);
+                    }
                     return;
                 }
                 main.post(() -> {
                     synchronized (LIFECYCLE) {
-                        if (!accepting() || source != ble || generation != source.connectionGeneration()) return;
-                        if (ButtonActions.isMediaAction(action)) lastButton = ButtonActions.dispatchMedia(OmiCaptureService.this, event);
+                        if (!accepting() || source != ble || generation != source.connectionGeneration()
+                                || configuration != buttonConfigurationGeneration()) return;
+                        if (ButtonActions.isMediaAction(action)) lastButton = ButtonActions.dispatchMediaAction(OmiCaptureService.this, action);
+                        else if ("flashlight".equals(action)) lastButton = TorchControl.toggle(OmiCaptureService.this);
                         else if ("shortcut".equals(action)) lastButton = ButtonActions.launchShortcut(OmiCaptureService.this, event);
+                        else if ("pause_start".equals(action)) {
+                            lastButton = ButtonActions.dispatchMediaAction(OmiCaptureService.this, "media_pause");
+                            // A bounded two-step chain: no timers, recursion or duplicate session.
+                            // Media dispatch is a request, not proof that the player paused.
+                            if (controls) closeControls(true);
+                        }
                         else if (controls && ("start".equals(action) || "toggle".equals(action))) closeControls(true);
                     }
                 });
             }
+        }
+        @Override public void onHapticStatus(String value) {
+            synchronized (LIFECYCLE) { if (accepting()) notificationPulseStatus = value; }
         }
         @Override public void onLedState(OmiBle.LedState value) {
             synchronized (LIFECYCLE) { if (accepting()) ledState = value; }
@@ -428,14 +524,20 @@ public final class OmiCaptureService extends Service {
     /** Called under LIFECYCLE; one gap per missing-audio episode, not per retry. */
     private void beginRecovery() {
         if (!listening() || !receivedPcm || recovering) return;
-        if (!incoming.bookmark(RECOVERY_MARKER)) {
-            stopCapture("Omi gap marker queue overflow; earlier audio retained", GAP_MARKER);
-            return;
-        }
+        if (!incoming.recover(RECOVERY_MARKER)) return; // Closed only by a terminal boundary.
+        publishRecovery(incoming.paused());
+    }
+
+    /** LIFECYCLE held; backlog and radio waiting share segmentation, not diagnosis. */
+    private void publishRecovery(boolean backlog) {
         recovering = hadGap = true;
+        archiveBacklog = backlog;
         level = 0;
         publishPartial("");
-        setProgress("Waiting for Omi — audio paused; reconnecting automatically; Stop cancels retry");
+        if (backlog) {
+            transport = "Omi audio paused — archive backlog draining";
+            setProgress("Saving archive backlog — audio paused; missing audio marked; resumes automatically; Stop cancels recording");
+        } else setProgress("Waiting for Omi — audio paused; reconnecting automatically; Stop cancels retry");
     }
 
     private void capture(String address) {
@@ -482,6 +584,7 @@ public final class OmiCaptureService extends Service {
                 lastWakeRenewal = SystemClock.elapsedRealtime();
             }
             try {
+                setConsumerPhase(PHASE_CREATE);
                 recordings = Recordings.get(this); id = recordings.create().id; sessionId = id;
                 display.reset(id);
             }
@@ -508,6 +611,7 @@ public final class OmiCaptureService extends Service {
             long connectedAt = SystemClock.elapsedRealtime();
             long lastPermissionCheck = connectedAt;
             while (true) {
+                setConsumerPhase(PHASE_DISPATCH);
                 long now = SystemClock.elapsedRealtime();
                 if (!wakeLock.isHeld() || now - lastWakeRenewal >= WAKE_TIMEOUT_MS / 2) {
                     wakeLock.acquire(WAKE_TIMEOUT_MS); lastWakeRenewal = SystemClock.elapsedRealtime();
@@ -530,7 +634,9 @@ public final class OmiCaptureService extends Service {
                         beginRecovery();
                     }
                 }
+                setConsumerPhase(PHASE_POLL);
                 OmiPcmQueue.Event event = incoming.pollBatch(200);
+                setConsumerPhase(PHASE_DISPATCH);
                 if (event == null) continue;
                 if (event.terminal) { terminalMarker = event.marker; break; }
                 if (event.pcm != null) {
@@ -542,13 +648,18 @@ public final class OmiCaptureService extends Service {
                             // for native return or closing its owner underneath it.
                             // No empty segment per retry: rotation needs real PCM.
                             if (speech != null) {
+                                setConsumerPhase(PHASE_ROLLOVER_WAIT);
                                 if (!speech.awaitIdle()) {
                                     if (fatalReason == null) {
                                         speechFailed("offline speech stalled during recovery; transcript may be incomplete");
                                         retiredSpeech = speech; speech = null;
+                                        setConsumerPhase(PHASE_SPEECH_RETIRE);
                                         retiredSpeech.retireToArchive();
                                     }
-                                } else speech.useRecording(null);
+                                } else {
+                                    setConsumerPhase(PHASE_SPEECH_OUTPUT);
+                                    speech.useRecording(null);
+                                }
                             }
                             if (fatalReason != null) {
                                 terminalMarker = GAP_MARKER;
@@ -556,47 +667,81 @@ public final class OmiCaptureService extends Service {
                             }
                             if (speechIssue != null && !incompleteMarked) {
                                 incompleteMarked = true; // Attempt once, even if commit outcome is ambiguous.
+                                setConsumerPhase(PHASE_MARKER);
                                 recordings.appendText(id, INCOMPLETE_MARKER);
                                 display.finalized(INCOMPLETE_MARKER);
                             }
+                            setConsumerPhase(PHASE_FINISH);
                             recordings.finish(id, speechIssue == null ? "saved" : "audio_only");
                             id = null; // Never append to/re-finalize the closed prefix.
+                            setConsumerPhase(PHASE_CREATE);
                             id = recordings.create().id; sessionId = id;
                             incompleteMarked = false;
                             display.reset(id);
+                            setConsumerPhase(PHASE_MARKER);
                             recordings.appendText(id, RESUME_MARKER);
                             display.finalized(RESUME_MARKER);
-                            if (speech != null) speech.useRecording(id);
+                            if (speech != null) {
+                                setConsumerPhase(PHASE_SPEECH_OUTPUT);
+                                speech.useRecording(id);
+                            }
                             rotateBeforePcm = false;
                             // Stop still drains PCM accepted BEFORE its FIFO fence.
                             // Creating an archive segment is not a capture restart.
                         }
-                        recordings.appendAudio(id, event.pcm, event.pcm.length);
+                        setConsumerPhase(PHASE_APPEND);
+                        long appendStarted = SystemClock.elapsedRealtime();
+                        try { recordings.appendAudio(id, event.pcm, event.pcm.length); }
+                        finally {
+                            long duration = Math.max(0, SystemClock.elapsedRealtime() - appendStarted);
+                            appendRecentMs = duration;
+                            appendMaxMs = Math.max(appendMaxMs, duration);
+                            setConsumerPhase(PHASE_DISPATCH);
+                        }
                         archivedSamples += event.pcm.length / 2;
                         lastArchivedAt = SystemClock.elapsedRealtime();
                         recorded = true;
                         level = recovering ? 0 : rms(event.pcm);
-                        if (speech != null) speech.offerAudio(event.pcm);
+                        if (speech != null) {
+                            setConsumerPhase(PHASE_SPEECH_OUTPUT);
+                            speech.offerAudio(event.pcm);
+                        }
                     } catch (Exception storageFailure) {
                         fatalReason = "Encrypted storage unavailable or full — earlier audio retained";
                         terminalMarker = GAP_MARKER;
                         break; // Never retry an ambiguously failed encrypted commit.
                     } finally { Arrays.fill(event.pcm, (byte) 0); }
                 } else if (event.marker != null) {
+                    setConsumerPhase(PHASE_SPEECH_OUTPUT);
                     if (speech != null && !speech.offerMarker(event.marker)) {
                         // Controls cannot be silently lost on an ASR-overloaded FIFO.
                         // Fence/retire without waiting for a stalled native call.
                         if (fatalReason != null) { terminalMarker = GAP_MARKER; break; }
                         speechFailed("speech controls fell behind; transcript may be incomplete");
                         retiredSpeech = speech; speech = null;
+                        setConsumerPhase(PHASE_SPEECH_RETIRE);
                         retiredSpeech.retireToArchive();
                         if (fatalReason != null) { terminalMarker = GAP_MARKER; break; }
                     }
                     if (speech == null) {
+                        setConsumerPhase(PHASE_MARKER);
                         recordings.appendText(id, event.marker);
                         display.finalized(event.marker);
                     }
                     if (RECOVERY_MARKER.equals(event.marker)) rotateBeforePcm = true;
+                }
+                synchronized (LIFECYCLE) {
+                    // A null-marker fence only acknowledges an existing gap. The
+                    // whole accepted prefix (including later controls) is handled
+                    // before ingress reopens; the original marker already installed
+                    // rotateBeforePcm and the ordered speech reset. Stop stays closed.
+                    if (incoming.completeRecovery(event)) {
+                        archiveBacklog = false;
+                        if (listening()) {
+                            transport = "Omi audio paused — archive backlog drained; waiting for new audio";
+                            setProgress("Waiting for Omi — archive backlog drained; waiting for new audio; Stop cancels recording");
+                        }
+                    }
                 }
             }
         } catch (InterruptedIOException | InterruptedException stopped) {
@@ -610,21 +755,26 @@ public final class OmiCaptureService extends Service {
                     : "Offline model or Omi capture unavailable — nothing recorded";
             if (receivedPcm) terminalMarker = GAP_MARKER;
         } finally {
+            setConsumerPhase(PHASE_CLEANUP);
             stopCapture(null, null);
             setProgress("Saving encrypted Omi recording…");
+            setConsumerPhase(PHASE_TRANSPORT_STOP);
             awaitTransportStop();
             // BLE has already been invalidated; no callback can enqueue later data.
             incoming.clear();
             level = 0;
+            setConsumerPhase(PHASE_SPEECH_DRAIN);
             if (speech != null) speech.finishAndJoin();
             // Native cleanup still belongs to its worker. Stop already fenced BLE;
             // a permanently stuck native call can still delay final teardown.
             if (retiredSpeech != null) retiredSpeech.finishAndJoin();
+            setConsumerPhase(PHASE_CLEANUP);
             closeRecognizer(recognizer); closeModel(model); publishPartial("");
             if (recordings != null && id != null) {
                 if (speechIssue != null && !incompleteMarked) {
                     try {
                         incompleteMarked = true;
+                        setConsumerPhase(PHASE_MARKER);
                         recordings.appendText(id, INCOMPLETE_MARKER);
                         display.finalized(INCOMPLETE_MARKER);
                     } catch (Exception storageFailure) {
@@ -634,6 +784,7 @@ public final class OmiCaptureService extends Service {
                 if (failureMarker != null) terminalMarker = failureMarker;
                 if (terminalMarker != null) {
                     try {
+                        setConsumerPhase(PHASE_MARKER);
                         recordings.appendText(id, terminalMarker);
                         display.finalized(terminalMarker);
                     }
@@ -643,11 +794,13 @@ public final class OmiCaptureService extends Service {
                 }
                 String status = fatalReason != null ? "error" : !recorded ? "cancelled"
                         : speechIssue != null ? "audio_only" : "saved";
+                setConsumerPhase(PHASE_FINISH);
                 try { recordings.finish(id, status); }
                 catch (Exception storageFailure) {
                     fatalReason = "Save finalization failed — committed audio needs recovery on next launch";
                 }
             }
+            setConsumerPhase(PHASE_CLEANUP);
             if (wakeLock != null) {
                 try { if (wakeLock.isHeld()) wakeLock.release(); }
                 catch (RuntimeException failure) { fatalReason = "Wake-lock cleanup failed"; }
@@ -657,6 +810,7 @@ public final class OmiCaptureService extends Service {
                     : speechIssue != null ? "Stopped — audio saved; " + speechIssue
                     : hadGap ? "Stopped — Omi audio saved; gaps marked, resumed audio kept in separate segments"
                     : "Stopped — Omi recording saved on this phone";
+            setConsumerPhase(PHASE_DONE);
             main.post(() -> {
                 synchronized (LIFECYCLE) {
                     if (owner != this) return;
@@ -953,10 +1107,12 @@ public final class OmiCaptureService extends Service {
             while (isAlive()) {
                 if (!retired && System.nanoTime() >= stopDeadlineNanos) {
                     speechFailed("offline speech drain timed out; transcript may be incomplete");
+                    setConsumerPhase(PHASE_SPEECH_RETIRE);
                     try { retireToArchive(); }
                     catch (Exception storageFailure) {
                         stopCapture("Encrypted transcript storage unavailable or full; captured audio retained", GAP_MARKER);
                     }
+                    setConsumerPhase(PHASE_SPEECH_DRAIN);
                 }
                 try { join(100); }
                 catch (InterruptedException failure) { interrupted = true; }

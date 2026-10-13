@@ -11,7 +11,7 @@ import textwrap
 sys.dont_write_bytecode = True
 from run_button_ble_tests import ROOT, SOURCES
 
-CLASSES = ('ButtonBleTest', 'LedBleTest', 'BatteryBleTest', 'ReconnectBleTest', 'TransportBleTest', 'ControlsBleTest')
+CLASSES = ('ButtonBleTest', 'LedBleTest', 'BatteryBleTest', 'ReconnectBleTest', 'TransportBleTest', 'ControlsBleTest', 'GestureBleTest', 'HapticBleTest')
 
 def main():
     selected = sys.argv[1:] or CLASSES
@@ -26,7 +26,7 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(textwrap.dedent(text))
             stubs.append(path)
-        production = [src / 'app/nottheomi/ai/OmiBle.java', src / 'app/nottheomi/ai/ButtonEvent.java']
+        production = [src / 'app/nottheomi/ai/OmiBle.java', src / 'app/nottheomi/ai/ButtonEvent.java', src / 'app/nottheomi/ai/ButtonGestures.java', src / 'app/nottheomi/ai/HapticPatterns.java']
         codec = sorted((src / 'org/concentus').glob('*.java'))
         assert len(codec) == 124, f'Expected 124 decoder sources, found {len(codec)}'
         tests = [ROOT / 'tests/omi' / (name + '.java') for name in CLASSES]

@@ -1,0 +1,155 @@
+{
+  "version_name": "0.4.12",
+  "version_code": 19,
+  "status": "passed",
+  "scope": "Fresh host tests executed in this public-source checkout; not Android/wearable acceptance",
+  "checks": [
+    {
+      "command": [
+        "python3",
+        "tests/omi/run_ble_tests.py"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "PASS: 365 assertions across 18 focused button/BLE host scenarios",
+        "PASS: 855 assertions across 40 LED/BLE host scenarios",
+        "PASS: 1194 assertions across 63 battery/BLE host scenarios",
+        "PASS: 761 assertions across 26 reconnect host scenarios",
+        "PASS: 221 assertions across 26 transport hardening host scenarios",
+        "PASS: 509 assertions across 39 controls-only BLE host scenarios",
+        "HOST-ONLY GestureBleTest PASS: 54 scenarios, 759 assertions",
+        "PASS: 17664 assertions across 641 haptic/BLE host scenarios",
+        "HOST-ONLY PASS: ButtonBleTest, LedBleTest, BatteryBleTest, ReconnectBleTest, TransportBleTest, ControlsBleTest, GestureBleTest, HapticBleTest"
+      ]
+    },
+    {
+      "command": [
+        "python3",
+        "tests/omi-capture/run_host_checks.py"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "OmiCaptureServiceHostTest PASS speech_control_saturation: 31 assertions",
+        "OmiCaptureServiceHostTest PASS segment_warning_failure: 25 assertions",
+        "OmiCaptureServiceHostTest PASS streaming_partial: 29 assertions",
+        "OmiCaptureServiceHostTest PASS partial_cancel: 28 assertions",
+        "OmiCaptureServiceHostTest PASS gap_partial: 26 assertions",
+        "OmiCaptureServiceHostTest PASS retired_partial: 33 assertions",
+        "OmiCaptureServiceHostTest PASS start_failure: 15 assertions",
+        "OmiCaptureServiceHostTest PASS stop_accept_timeout: 36 assertions",
+        "OmiCaptureServiceHostTest PASS stop_final_timeout: 38 assertions",
+        "OmiCaptureService host PASS: 72 scenarios (controlled doubles, not device acceptance)."
+      ]
+    },
+    {
+      "command": [
+        "python3",
+        "tests/omi-composition/run_host_checks.py"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "ControlsCompositionHostTest PASS controls_pause_start: 31 assertions; segments=[segment-1]; bytes=640",
+        "ControlsCompositionHostTest PASS capture_pause_start: 16 assertions; segments=[segment-1]; bytes=640",
+        "ControlsCompositionHostTest PASS controls_flashlight: 18 assertions; segments=[]; bytes=0",
+        "ControlsCompositionHostTest PASS capture_flashlight: 16 assertions; segments=[segment-1]; bytes=640",
+        "ControlsCompositionHostTest PASS controls_reject_phone: 21 assertions; segments=[]; bytes=0",
+        "ControlsCompositionHostTest PASS controls_reject_permission: 21 assertions; segments=[]; bytes=0",
+        "ControlsCompositionHostTest PASS controls_reject_notification: 21 assertions; segments=[]; bytes=0",
+        "ControlsCompositionHostTest PASS controls_stop_transition: 20 assertions; segments=[]; bytes=0",
+        "ControlsCompositionHostTest PASS controls_stop_intent_transition: 21 assertions; segments=[]; bytes=0",
+        "Omi composition host PASS: 43 scenarios; 1663 assertions; real service + BLE + Concentus; fake Android/GATT/storage/preview."
+      ]
+    },
+    {
+      "command": [
+        "python3",
+        "tests/capture/run_host_checks.py",
+        "--sdk",
+        "$ANDROID_SDK_ROOT",
+        "--model",
+        "$WHISPER_MODEL",
+        "--preview-model",
+        "$VOSK_MODEL_ZIP"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "CaptureServiceHostTest PASS storage_failure: 30 assertions",
+        "CaptureServiceHostTest PASS read_failure: 30 assertions",
+        "CaptureServiceHostTest PASS text_failure: 30 assertions",
+        "CaptureServiceHostTest PASS streaming_partial: 36 assertions",
+        "CaptureServiceHostTest PASS partial_cancel: 32 assertions",
+        "CaptureServiceHostTest PASS start_failure: 17 assertions",
+        "CaptureServiceHostTest PASS stop_accept_timeout: 41 assertions",
+        "CaptureServiceHostTest PASS stop_final_timeout: 43 assertions",
+        "CaptureServiceHostTest PASS stop_storage_blocked: 31 assertions",
+        "CaptureService host PASS: 19 scenarios (Android/native/storage doubles)."
+      ]
+    },
+    {
+      "command": [
+        "python3",
+        "tests/hybrid/run_host_checks.py"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "{\"result\":\"PASS_REFINEMENT_ENGINE_HOST\",\"scenarios\":14,\"assertions\":2400217,\"scope\":\"production bounded engine with fake decoder/store; not native recognition\"}"
+      ]
+    },
+    {
+      "command": [
+        "python3",
+        "tests/hybrid/run_job_checks.py"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "RefinementJobHostTest PASS stop: 14 assertions; production service with controlled doubles",
+        "RefinementJobHostTest PASS different-job: 11 assertions; production service with controlled doubles",
+        "RefinementJobHostTest PASS destroy: 11 assertions; production service with controlled doubles",
+        "RefinementJobHostTest PASS capture-preempt: 12 assertions; production service with controlled doubles",
+        "RefinementJobHostTest PASS capture-active: 4 assertions; production service with controlled doubles",
+        "RefinementJobHostTest PASS success: 10 assertions; production service with controlled doubles",
+        "JobService lifecycle PASS: 6 scenarios; Android/native/store doubles, not device lifecycle acceptance."
+      ]
+    },
+    {
+      "command": [
+        "python3",
+        "tests/whisper-java/run_host_checks.py"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "WhisperJavaWrapperTest PASS: 32 assertions; mocked JNI, production wrappers"
+      ]
+    },
+    {
+      "command": [
+        "python3",
+        "tests/library-dates/run_host_checks.py"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "PASS calendar invariants for every week start",
+        "PASS calendar range boundaries and null inputs",
+        "PASS page counts and zero-based clamping",
+        "PASS overflow-safe huge counts",
+        "PASS invalid page sizes",
+        "PASS Unicode search compatibility",
+        "PASS bounded text and ellipsis budget",
+        "PASS bounded emoji and surrogate boundaries",
+        "LibraryDatesTest: PASS (15 tests, 37831 assertions; default zone=Asia/Tokyo)",
+        "LibraryDates host checks: PASS; temporary classes removed"
+      ]
+    },
+    {
+      "command": [
+        "python3",
+        "tests/buttons/test_android_runner.py"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "Ran 6 tests in 0.000s",
+        "OK"
+      ]
+    }
+  ]
+}

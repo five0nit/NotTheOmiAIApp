@@ -19,7 +19,7 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(textwrap.dedent(text))
             stubs.append(path)
-        production = [src / 'app/nottheomi/ai/OmiBle.java', src / 'app/nottheomi/ai/ButtonEvent.java']
+        production = [src / 'app/nottheomi/ai/OmiBle.java', src / 'app/nottheomi/ai/ButtonEvent.java', src / 'app/nottheomi/ai/ButtonGestures.java', src / 'app/nottheomi/ai/HapticPatterns.java']
         production += sorted((src / 'org/concentus').glob('*.java'))
         tests = [ROOT / 'tests/omi/ButtonBleTest.java', ROOT / 'tests/omi/LedBleTest.java',
                  ROOT / 'tests/omi/BatteryBleTest.java']

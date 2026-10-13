@@ -27,9 +27,38 @@ import java.util.List;
 
 /** Local per-gesture actions, native media controls and validated activity targets. */
 public final class ButtonActions {
-    static final String[] IDS = {"bookmark", "start", "stop", "toggle", "media_play_pause", "media_pause", "shortcut", "ignore"};
+    static final String[] IDS = {"bookmark", "start", "stop", "toggle", "media_play_pause", "media_pause",
+        "media_play", "media_next", "media_previous", "media_stop", "media_fast_forward", "media_rewind",
+        "media_volume_up", "media_volume_down", "media_mute", "shortcut", "flashlight", "smart", "pause_start", "ignore"};
     static final String[] LABELS = {"Bookmark in transcript", "Start recording", "Stop & save",
-        "Start / stop recording", "Play / pause music", "Pause music", "Phone shortcut", "No action"};
+        "Start / stop recording", "Play / pause music", "Pause music", "Play music", "Next track", "Previous track",
+        "Stop music", "Fast-forward music", "Rewind music", "Media volume up", "Media volume down",
+        "Mute / unmute media", "Phone shortcut", "Flashlight toggle",
+        "Smart: bookmark recording / play-pause idle", "Pause music → start recording", "No action"};
+    static final String[] PROFILE_IDS = {"everyday", "meeting", "music"};
+    static final String[] PROFILE_LABELS = {"Everyday", "Meeting", "Music"};
+    static final int[] GESTURES = {ButtonEvent.SINGLE, ButtonEvent.DOUBLE, ButtonEvent.TRIPLE,
+        ButtonEvent.QUADRUPLE, ButtonEvent.QUINTUPLE};
+    public static String profile(Context context) {
+        String id = string(OmiSettingsActivity.preferences(context), "control_profile", "everyday");
+        for (String valid : PROFILE_IDS) if (valid.equals(id)) return id;
+        return "everyday";
+    }
+    static synchronized boolean setProfile(Context context, String id) {
+        boolean valid = false;
+        for (String candidate : PROFILE_IDS) if (candidate.equals(id)) valid = true;
+        if (!valid) return false;
+        if (!profile(context).equals(id)) {
+            configurationGeneration++;
+            OmiSettingsActivity.preferences(context).edit().putString("control_profile", id).apply();
+            for (int event : GESTURES) cancelNotification(context, event);
+        }
+        return true;
+    }
+    private static String scopedKey(Context context, String key) {
+        String profile = profile(context);
+        return "everyday".equals(profile) ? key : "profile_" + profile + "_" + key;
+    }
     static final int MAX_URI = 8192, MAX_LABEL = 120, MAX_PARCEL = 32768;
     static final String CHANNEL = "omi_button_shortcuts";
     private static final Object VISIBLE_LOCK = new Object();
@@ -38,8 +67,19 @@ public final class ButtonActions {
         | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION;
     private ButtonActions() {}
 
-    static boolean gesture(int event) { return event == ButtonEvent.SINGLE || event == ButtonEvent.DOUBLE; }
-    static String key(int event) { return event == ButtonEvent.SINGLE ? "single_action" : "double_action"; }
+    static boolean gesture(int event) {
+        return ButtonEvent.isGesture(event);
+    }
+    static String key(int event) {
+        switch (event) {
+            case ButtonEvent.SINGLE: return "single_action";
+            case ButtonEvent.DOUBLE: return "double_action";
+            case ButtonEvent.TRIPLE: return "triple_action";
+            case ButtonEvent.QUADRUPLE: return "quadruple_action";
+            case ButtonEvent.QUINTUPLE: return "quintuple_action";
+            default: throw new IllegalArgumentException("Unsupported button gesture: " + event);
+        }
+    }
     static String targetKey(int event) { return key(event) + "_shortcut_uri"; }
     static String labelKey(int event) { return key(event) + "_shortcut_label"; }
     private static String string(SharedPreferences prefs, String key, String fallback) {
@@ -50,21 +90,37 @@ public final class ButtonActions {
     /** Reads live preferences on every press; legacy bookmark/stop/ignore IDs remain intact. */
     public static String action(Context context, int event) {
         if (!gesture(event)) return "ignore";
-        String fallback = event == ButtonEvent.SINGLE ? "bookmark" : "stop";
+        String fallback = event == ButtonEvent.SINGLE ? "bookmark" : event == ButtonEvent.DOUBLE ? "stop" : "ignore";
+        if ("music".equals(profile(context))) fallback = event == ButtonEvent.SINGLE ? "media_play_pause"
+            : event == ButtonEvent.DOUBLE ? "media_next" : "ignore";
         SharedPreferences prefs = OmiSettingsActivity.preferences(context);
         // Missing values migrate to the original defaults; corrupt/unknown values fail closed.
-        String value = prefs.contains(key(event)) ? string(prefs, key(event), "ignore") : fallback;
+        String key = scopedKey(context, key(event));
+        String value = prefs.contains(key) ? string(prefs, key, "ignore") : fallback;
         return IDS[index(value)];
     }
-    static boolean setAction(Context context, int event, String id) {
+    public static String resolvedAction(Context context, int event, boolean recording) {
+        String selected = action(context, event);
+        return "smart".equals(selected) ? (recording ? "bookmark" : "media_play_pause") : selected;
+    }
+    public static int maxButtonTaps(Context context) {
+        if (!"ignore".equals(action(context, ButtonEvent.QUINTUPLE))) return 5;
+        if (!"ignore".equals(action(context, ButtonEvent.QUADRUPLE))) return 4;
+        return "ignore".equals(action(context, ButtonEvent.TRIPLE)) ? 2 : 3;
+    }
+    // Process-local monotonic fence: even disable -> re-enable invalidates queued presses.
+    private static long configurationGeneration;
+    static synchronized long configurationGeneration() { return configurationGeneration; }
+    static synchronized boolean setAction(Context context, int event, String id) {
         if (!gesture(event) || !IDS[index(id)].equals(id)) return false;
-        OmiSettingsActivity.preferences(context).edit().putString(key(event), id).apply();
+        if (!action(context, event).equals(id)) configurationGeneration++;
+        OmiSettingsActivity.preferences(context).edit().putString(scopedKey(context, key(event)), id).apply();
         if (!"shortcut".equals(id)) cancelNotification(context, event);
         return true;
     }
     static String targetLabel(Context context, int event) {
         if (!gesture(event)) return "No phone shortcut selected";
-        String label = string(OmiSettingsActivity.preferences(context), labelKey(event), "");
+        String label = string(OmiSettingsActivity.preferences(context), scopedKey(context, labelKey(event)), "");
         return validLabel(label) ? label : "No phone shortcut selected";
     }
     private static boolean validLabel(String label) {
@@ -165,7 +221,7 @@ public final class ButtonActions {
             return safe;
         } catch (Exception invalid) { return null; }
     }
-    static boolean saveTarget(Context context, int event, Intent input, String label, String expectedPackage) {
+    static synchronized boolean saveTarget(Context context, int event, Intent input, String label, String expectedPackage) {
         if (!gesture(event) || !validLabel(label)) return false;
         Intent safe = validated(context, input, expectedPackage);
         if (safe == null) return false;
@@ -175,14 +231,16 @@ public final class ButtonActions {
             Intent roundTrip = validated(context, Intent.parseUri(uri, Intent.URI_INTENT_SCHEME | Intent.URI_ALLOW_UNSAFE), expectedPackage);
             if (roundTrip == null || !uri.equals(roundTrip.toUri(Intent.URI_INTENT_SCHEME))) return false;
         } catch (Exception invalid) { return false; }
-        OmiSettingsActivity.preferences(context).edit().putString(targetKey(event), uri).putString(labelKey(event), label.trim()).apply();
+        configurationGeneration++;
+        OmiSettingsActivity.preferences(context).edit().putString(scopedKey(context, targetKey(event)), uri)
+            .putString(scopedKey(context, labelKey(event)), label.trim()).apply();
         cancelNotification(context, event);
         return true;
     }
     static Intent target(Context context, int event) {
         if (!gesture(event)) return null;
-        String uri = string(OmiSettingsActivity.preferences(context), targetKey(event), "");
-        if (uri.isEmpty() || uri.length() > MAX_URI || !validLabel(string(OmiSettingsActivity.preferences(context), labelKey(event), ""))) return null;
+        String uri = string(OmiSettingsActivity.preferences(context), scopedKey(context, targetKey(event)), "");
+        if (uri.isEmpty() || uri.length() > MAX_URI || !validLabel(string(OmiSettingsActivity.preferences(context), scopedKey(context, labelKey(event)), ""))) return null;
         try {
             Intent parsed = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME | Intent.URI_ALLOW_UNSAFE);
             // Stored mappings are explicit; never resolve a newly installed default from a corrupt URI.
@@ -199,21 +257,52 @@ public final class ButtonActions {
         } catch (RuntimeException invalid) { return false; }
     }
     public static boolean isMediaAction(String action) {
-        return "media_play_pause".equals(action) || "media_pause".equals(action);
+        return mediaKey(action) != KeyEvent.KEYCODE_UNKNOWN || volumeDirection(action) != AudioManager.ADJUST_SAME;
     }
-    /** Native media key pair: no activity, notification tap, audio focus or capture change.
+    private static int mediaKey(String action) {
+        if (action == null) return KeyEvent.KEYCODE_UNKNOWN;
+        switch (action) {
+            case "media_play_pause": return KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+            case "media_pause": return KeyEvent.KEYCODE_MEDIA_PAUSE;
+            case "media_play": return KeyEvent.KEYCODE_MEDIA_PLAY;
+            case "media_next": return KeyEvent.KEYCODE_MEDIA_NEXT;
+            case "media_previous": return KeyEvent.KEYCODE_MEDIA_PREVIOUS;
+            case "media_stop": return KeyEvent.KEYCODE_MEDIA_STOP;
+            case "media_fast_forward": return KeyEvent.KEYCODE_MEDIA_FAST_FORWARD;
+            case "media_rewind": return KeyEvent.KEYCODE_MEDIA_REWIND;
+            default: return KeyEvent.KEYCODE_UNKNOWN;
+        }
+    }
+    private static int volumeDirection(String action) {
+        if ("media_volume_up".equals(action)) return AudioManager.ADJUST_RAISE;
+        if ("media_volume_down".equals(action)) return AudioManager.ADJUST_LOWER;
+        if ("media_mute".equals(action)) return AudioManager.ADJUST_TOGGLE_MUTE;
+        return AudioManager.ADJUST_SAME;
+    }
+    /** Native transport key pair or explicit music-stream volume adjustment.
+     * No activity, notification tap, audio focus, ring/call stream or capture change.
      * Android chooses the media receiver; dispatch is a request, not playback acknowledgement. */
     public static String dispatchMedia(Context context, int event) {
-        String action = action(context, event);
+        return dispatchMediaAction(context, action(context, event));
+    }
+    public static String dispatchMediaAction(Context context, String action) {
         if (!isMediaAction(action)) return "No music action selected";
-        AudioManager audio = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
-        if (audio == null) return "Music control unavailable";
-        int key = "media_pause".equals(action) ? KeyEvent.KEYCODE_MEDIA_PAUSE : KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
-        long now = SystemClock.uptimeMillis();
         try {
+            AudioManager audio = (AudioManager)context.getSystemService(Context.AUDIO_SERVICE);
+            if (audio == null) return "Music control unavailable";
+            int direction = volumeDirection(action);
+            if (direction != AudioManager.ADJUST_SAME) {
+                if (context.checkSelfPermission(Manifest.permission.MODIFY_AUDIO_SETTINGS) != PackageManager.PERMISSION_GRANTED)
+                    return "Music control could not be sent";
+                // Do not dispatch volume keys: those can target a call or another suggested stream.
+                audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0);
+                return LABELS[index(action)] + " requested — Android adjusts the music stream";
+            }
+            int key = mediaKey(action);
+            long now = SystemClock.uptimeMillis();
             audio.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, key, 0));
             audio.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, key, 0));
-            return (key == KeyEvent.KEYCODE_MEDIA_PAUSE ? "Pause music" : "Play / pause music")
+            return LABELS[index(action)]
                 + " requested — Android routes to the current media player";
         } catch (RuntimeException unavailable) { return "Music control could not be sent"; }
     }
@@ -255,7 +344,7 @@ public final class ButtonActions {
                 return "Phone shortcut not launched — enable the Omi phone shortcuts notification channel";
             PendingIntent tap = PendingIntent.getActivity(context, notificationId(event), target, PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             Notification notification = new Notification.Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_launcher).setContentTitle(event == ButtonEvent.SINGLE ? "Omi single press · Tap to run" : "Omi double press · Tap to run")
+                .setSmallIcon(R.drawable.ic_launcher).setContentTitle("Omi " + ButtonEvent.label(event) + " · Tap to run")
                 .setContentText(targetLabel(context, event)).setContentIntent(tap).setAutoCancel(true)
                 .setVisibility(Notification.VISIBILITY_PRIVATE).setOnlyAlertOnce(true).build();
             manager.notify(notificationId(event), notification);

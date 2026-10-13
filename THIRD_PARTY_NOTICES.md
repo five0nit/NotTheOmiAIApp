@@ -1,6 +1,6 @@
 # Third-party notices
 
-Current source (0.4.7):
+Current source (0.4.12):
 
 - `whisper.cpp`, ggml-org, commit `6e4ab854f67f743900934a703d5603419384c961`: https://github.com/ggml-org/whisper.cpp — MIT. CPU-only saved-audio inference, including upstream ggml. Pinned source archive hash in `DEPENDENCIES.json`; complete upstream notice in `app/src/main/assets/licenses/whisper.cpp-MIT.txt`.
 - OpenAI Whisper English model, quantized `ggml-small.en-q5_1.bin`, distributed by `ggerganov/whisper.cpp` at revision `5359861c739e955e79d9a303bcbc70fb988958b1`: https://huggingface.co/ggerganov/whisper.cpp — MIT. Bundled, hash-verified offline model. Original model notice in `app/src/main/assets/licenses/whisper-model-MIT.txt`.

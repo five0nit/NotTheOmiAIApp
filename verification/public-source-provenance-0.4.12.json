@@ -1,0 +1,955 @@
+{
+  "version_name": "0.4.12",
+  "version_code": 19,
+  "scope": "Byte-identical source/test inputs matched to retained verified local candidate; no private Git history imported",
+  "bound_input_count": 230,
+  "inputs": [
+    {
+      "path": "app/build.gradle",
+      "sha256": "13fcc1cde690d8dc936647a6d35af2278694e31841ba6530d69e3f42a4e077ed"
+    },
+    {
+      "path": "app/src/androidTest/AndroidManifest.xml",
+      "sha256": "c63249a70b8635d1d8db466bbb5cd3ed3457e9571714dd31bf425433e385bc65"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ArchiveHotPathTest.java",
+      "sha256": "27a01d4bb72efd84e72c8f3d2b5b5a0bc4ef4dce45178c29f0c0dd72c4baf838"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ArchiveProbeTrace.java",
+      "sha256": "2ddaf025b6a26b6bc9c05c24cffc72638a57078a5bddbb9b606a3bd8932b3d73"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ArchiveQuotaCacheTest.java",
+      "sha256": "f0366af0b4713df943d7833245df36ec0c801af4c8bf63d02dddd956306a7de3"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ArchiveReadConcurrencyTest.java",
+      "sha256": "741f535d037ea4213da72ebd1a38a4f32e5fc90710f3c97a5d888e9fa54898e0"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ArchiveSustainedThroughputTest.java",
+      "sha256": "5c51f1901dfb236806dd83b40dbb2b6408f9883528c8ec7233702eee61c3bf08"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ArchiveThroughputTest.java",
+      "sha256": "e72355be119c979e08ec2b0e5b1c58b24fabc0319591c6c929be928d3e67dd4d"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ButtonActionsTest.java",
+      "sha256": "332ab4f6633141615741b66c88cb7d446e1d6c95bb045513140b230a1d970e5b"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ButtonMediaTest.java",
+      "sha256": "cc7fd6f125badef821ed21d0b7387a90af6fbdfadd7f55a9f435ffa11b9e3d24"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/ButtonShortcutFixtureActivity.java",
+      "sha256": "9d3c4ac3e358f58c7909e37c42feb18a3f094e413dd1db9c29afc130536411a1"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/HomeActivityTest.java",
+      "sha256": "e9de1d0b9c5d32db5b1a4dbf45428b057f19d33346fd8f8ecddb661dc2f0436b"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/HybridRecordingsTest.java",
+      "sha256": "883937a915d8c1354de8b09f6991691c003ad288b4e1ca5aec0f1f784342fc7f"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/HybridSpeechIntegrationTest.java",
+      "sha256": "ed221da10e0c05ee7a06a27d48b8cfa574a013ee5ad37c4ded5a341ddd8343df"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/LibraryActivityTest.java",
+      "sha256": "f3aa89721f3ab55fa70455fa69e2c1cf31e510cdb650e90ebf4b4e254d3c4abf"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/LibraryRecordingsTest.java",
+      "sha256": "ddf5d34d5b8891446cd35001c71c1c24ad531a635079d2b76cfa095d62d61e7a"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/MoreControlsTest.java",
+      "sha256": "700febf0eb68a95e2542ec834cf5fb49840e8201eaf8f27a147461b83b52434a"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/NotificationControlsTest.java",
+      "sha256": "21ed6753bc01e605d7ed1a085401c93850477e1f1b3fdb10a0e179e1c092f6fd"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/NotificationVibrationsTest.java",
+      "sha256": "264a84c9aac17b8353d451f67797e36b201d4116b14071cf0454677bbcd082e4"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/OmiIntegrationTest.java",
+      "sha256": "7b2538902e2c7d8860294a7e4772abcb9785971af6663455f392a44700898aa8"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/PlaybackTest.java",
+      "sha256": "d0b266f655b1dbef89f1efcd08ed107ad59f85c7faebbc8a62040f56ae04de28"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/RecentRecordingsTest.java",
+      "sha256": "e3655eb8ce72c964d008d42ef97a947e27598d605d07d8cd936b12f958bfbe05"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/RecordingsTest.java",
+      "sha256": "3e6af1e53add5573722a5094398ccb9c4b7455d1e2c2d56e04bc4e541e22786b"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/SpeechIntegrationTest.java",
+      "sha256": "49e96ccabbf7c33f37831702bc4b6aeabc98415d1185ad403334565712c2d748"
+    },
+    {
+      "path": "app/src/androidTest/java/app/nottheomi/ai/TorchControlTest.java",
+      "sha256": "1a432c9d7a26cc2114146949dc35ef9c2632ca5b53b588d6b39bcc1b76427107"
+    },
+    {
+      "path": "app/src/main/AndroidManifest.xml",
+      "sha256": "14a9eed6552c8d4d48902292d47961564ec27c62a1f250173b677f50921696a7"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/ButtonActions.java",
+      "sha256": "c5a80be15c35a9e51b0300844b78812b8b9631512d434ee864fbdcf52b8bcf31"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/ButtonEvent.java",
+      "sha256": "267c4b8e60fc06f0d89036610ba5e8ed8052fe38ec1e9f549aac9b509b576609"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/ButtonGestures.java",
+      "sha256": "f917c946ea5d11b003ca60909526e6cd9f7df3b3b599c60311414523fa340d9b"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/CaptureService.java",
+      "sha256": "7ed98a52e607e9c3d743162f57bd1a89769da8c7d0f76f2dabddc424ca691ad2"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/HapticPatterns.java",
+      "sha256": "470b52e703281120df2c835b1e7650022e0d16b56e5939a9e7fd84b1e3502dc5"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/LibraryBrowser.java",
+      "sha256": "c28c5d307661992a993641813db577bb995a7bac0530e354173febfbf9baad02"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/LibraryDates.java",
+      "sha256": "7f5b29f9b7e72ce565d4326dbde18f5b9918046b94d0dbb6c65631ed909756c6"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/LiveTranscript.java",
+      "sha256": "09b1d1e25564d02b9f85da95cad59a51871824ee326c100ce7e8505b8fb45ee2"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/LocalPlayback.java",
+      "sha256": "7226561eb1fe97cf86fa2b47ea8966dd1304f6f08e330fd33e61484441579e72"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/MainActivity.java",
+      "sha256": "1508cc1fcc7f06b6b63e6e3ea297160ae74618616a266c822167c9df3b6ca4a1"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/ModelInstaller.java",
+      "sha256": "192e699c7f11d16f78ed9b2cbd500442ef506917b426289c2554fc9b99a9ff62"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/NotificationControls.java",
+      "sha256": "48b59a481529d06a8ce56852cc7edafc79804871a2647a34c8da4803ab54d3af"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/NotificationVibrations.java",
+      "sha256": "d57b9b07f4f479d803f95145d4496f2218f01fb7d917992b0ef931118f9f6772"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/OmiBle.java",
+      "sha256": "4a63c53925c4fe38b26d7f918205080588d4f6881722934758e989b12424638a"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/OmiCaptureService.java",
+      "sha256": "cdbd7eaa4d6998ebd8f0536934331ac09e54a5ec60d12e3390f7539c22bec5fd"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/OmiNotificationListener.java",
+      "sha256": "3171ff0aaa484aec78cf0dc0f391d77d9174392f21636e09b4fb84a17faaefc3"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/OmiPcmQueue.java",
+      "sha256": "7a0e55c8d91abf9eb6e8dadc05ca389df2368587e4379f4440ace07d5109dba7"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/OmiSettingsActivity.java",
+      "sha256": "4f736af12e217ae35590972e4a85e864e65e3fcf1c66c55845a4c61aa2081c6b"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/PreviewModel.java",
+      "sha256": "daec522ed12e514784a9da33547170d0eec4fe44318962a676ff1c5f217bbdb1"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/PreviewModelInstaller.java",
+      "sha256": "3b9d6cfaead7e6950329a3b0661422c9046a1669be4e18b976a28ab88804ed03"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/PreviewRecognizer.java",
+      "sha256": "f72e75959ba8409325579f51e6e86d5c3651d47e04c458da822af2c174606db2"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/Recordings.java",
+      "sha256": "b73f30a7029c54768f15323172781d04074aee088fdf8fd7141eb4731b0e30dd"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/RefinementEngine.java",
+      "sha256": "32695edfb07c33947defb0b985e746bc438d538df21e93cd59ba684f09291760"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/RefinementJobService.java",
+      "sha256": "93c1545251bdebdbad5727681e4ba0a2397430a8fa0bc8e7f2a4d71423fd51cb"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/TorchControl.java",
+      "sha256": "0590c47ba3ac1639adcddaa45bf9f3ad13ef9f692c18d51e0a471d12bc37abe4"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/WhisperModel.java",
+      "sha256": "346bb1148a3c6ef93023eb51ed5bb7401783fc2c1c47d5509931170b01e05748"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/WhisperNative.java",
+      "sha256": "41c9ad9fe85601ce42bd1d817992ca89294c34ccf8ce7c3b1a13119e6490ced8"
+    },
+    {
+      "path": "app/src/main/java/app/nottheomi/ai/WhisperRecognizer.java",
+      "sha256": "5794965fe307e0dba6fe2a7ae61c0b989de6cd5ab5acb39a71e6b53630b851c1"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Analysis.java",
+      "sha256": "c084ab97336208d71f50b7110ca51f395f6240b39a5c263c4d8e96149946334a"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/AnalysisInfo.java",
+      "sha256": "6727cd2dc7b962a149cf6b8c0c1e9657afd3d8ca5783dbc92d4ed0f38d1f735b"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/ApplySineWindow.java",
+      "sha256": "036340fd6caf93534d91c919fa0edac9670d8e9608a83c16d7daf5693d6ef300"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Arrays.java",
+      "sha256": "a1d01e461cbec2f6686618b92bf375cc5db038aa1a87f6773604dffb8f6128da"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Autocorrelation.java",
+      "sha256": "6ec21376863f012279ce290b35dafa0a1b4b7f5e2941ad504b8b3ebdbba395a8"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/BWExpander.java",
+      "sha256": "fa7b0ee7fc587b66fd72e7cdfecbdeaecb60980ce84f2f18372b69069eef9f1d"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Bands.java",
+      "sha256": "c7228f645e7257c8091bfa73a680b2c09347196529c13225c0fae970365d7218"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/BoxedValue.java",
+      "sha256": "41856dc842a2718a71dd7917fead9ac6cb91b57baef2bd14200aea345ce49b52"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/BurgModified.java",
+      "sha256": "fbed10b45db9adedf2194b72d08f5ab314ad06eeacd8c6c731fa96a748971e16"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CNG.java",
+      "sha256": "93ddca2750577d1289b5652c8d7034d8262e4c62448ffc9810127ee2c136c5f3"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CNGState.java",
+      "sha256": "f53d5a29f68d7fc9a198ff36c68bb9df2d73d64057defa76cbfaf42d296fc834"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CWRS.java",
+      "sha256": "c5fceffc3aa89bb561ed7e35d028a8f41dc80ff02417e0aec539f9342e1a57ee"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CeltCommon.java",
+      "sha256": "9a3fa42bfc69ec6ae1965472fb77267b0b80f6c40a04e2de8da4287adc16c954"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CeltConstants.java",
+      "sha256": "8736b0470dad9757f86d44645cae105ad1b3a4b77ab07a4716c1912703676dcc"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CeltDecoder.java",
+      "sha256": "0bd516fbc0f9d828821d2974a435dde9e322af384cf540e26f3ff692160bd43a"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CeltEncoder.java",
+      "sha256": "12acb2ccda1c403442fe57a69d88a9da4677549a4f0f7e8237b9cb88832a14fc"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CeltLPC.java",
+      "sha256": "0b938526bfa0e531715b4809d23af03389c887140f8a586cc662c32ec4a21d1e"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CeltMode.java",
+      "sha256": "e760d1532caa70d3ba9a9ba0c14de8fef5d05dd66506328141ec76ef5a1fa88f"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CeltPitchXCorr.java",
+      "sha256": "6ba1ed98d289fe98e0449597c5903170523e929150dffe4694d6b6af08bbaf60"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CeltTables.java",
+      "sha256": "ead3a15826378c2394521328e60e508dfed0906321415523dee29b00383e17e5"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/ChannelLayout.java",
+      "sha256": "b693eb52f00a917553d426ee5663609b91cb257d4b429a19982379cc6aa035e2"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CodeSigns.java",
+      "sha256": "7515004ffa635f4d321062a89e25dd01daa681f464113f74e04c82dbff6f1a81"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CodecHelpers.java",
+      "sha256": "a22fee0d7d7214da81287a608c74f1e8ec5f0d8b8d4351024c64f4b28dc818ea"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/CorrelateMatrix.java",
+      "sha256": "f363a19f8d170d375af4fae27e024d3c3f85cda6bf3741c1b6748e10f00cbdb3"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/DecControlState.java",
+      "sha256": "eb4ddf8ae303cc83c9034a0a3b035c860bf4c8a3b755fe9c095295075adc28da"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/DecodeAPI.java",
+      "sha256": "59840f4a8b7c938131dc3a49fb5d085982c4df9556d96d03c4d776a07bc33b2b"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/DecodeCore.java",
+      "sha256": "afa59480f4650fb3e8109d1213ed9409744b61b7be3cee10ba406ccc8eb173d9"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/DecodeIndices.java",
+      "sha256": "c4fb3731d6340f957214933d2a6e7ac52ab59ebd971f7c682cce18d9b759d974"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/DecodeParameters.java",
+      "sha256": "87d0429027ba31f33679f5c9736cfa1a16e3617045e81ee92a4ac75a84d52252"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/DecodePitch.java",
+      "sha256": "4c5e96f3794e467f0bc5e2f51c12765485cd86d897eabb65b40adf6997f6af98"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/DecodePulses.java",
+      "sha256": "28f09e8b111d345ecc9c1eb6346cc8278194e360219ea29b931e2540215a39cc"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/DecoderAPIFlag.java",
+      "sha256": "327fa5848d32670a1fe798e0e3f2d7d9e45ac2bdbe39ad56574ffebf09bdf159"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Downmix.java",
+      "sha256": "a0b7ea4abe516707de7ae054a6ad8b2f3bfa128e766be1bde69f5f96fbb851f4"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/EncControlState.java",
+      "sha256": "ee0d3aa233a4711a138ccc8bc5b8321aecb312ed532478711b2f53f430b44d25"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/EncodeAPI.java",
+      "sha256": "e82f41a33ded78a40483e844958b547fc1694705a420d021b28e5cdb8d7a3b91"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/EncodeIndices.java",
+      "sha256": "a806d9820259752969cbaa3d564af6783f83f8696c5f08081fb5fa5251db39cb"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/EncodePulses.java",
+      "sha256": "f46f02a2852ca09db74f645c3a9a9136b48a654d7dbd12f59d23554cbe564ed2"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/EntropyCoder.java",
+      "sha256": "a9563c527d6eef24e39a3ba9236f970edd2b106ad56f5632db34dc0aaf31e774"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/FFTState.java",
+      "sha256": "48da7d3cc53f7affa86de1482d550340627334098d418c045e1eeb4b5e954670"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Filters.java",
+      "sha256": "6977c3a88144ea02ef21aad82cbf1f20ffc58f3c65a68f24561a3a4bb911045b"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/FindLPC.java",
+      "sha256": "d01496a208fd3ae4634ca88b21d53199f993cfb6a6b47a7d6d6930c0ed4e6f9d"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/FindLTP.java",
+      "sha256": "e26a30fd122730b3b0d33af4ddce67151b9644265c77227772e69b6b14030f3c"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/FindPitchLags.java",
+      "sha256": "6dbce48830cfc4633a90377ec2f3c135182bafffe11085a80aff3de846fe2598"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/FindPredCoefs.java",
+      "sha256": "1dfbb28e1bb4a88c8a39f85c84f1e5670ac28132576b76a6101f8ff23eea6400"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/GainQuantization.java",
+      "sha256": "98386dbe5735a5fc3f65164dcaf9c844afc808ccf0421dbd2c4b56a4d384c80f"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/HPVariableCutoff.java",
+      "sha256": "cec8777c77596660bc5d2c3e060c327f4b248e0a21875a5ac06c688aa4e43607"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Inlines.java",
+      "sha256": "565f27fb41fda001a63eb359f1084b6628777ca756361e8fa96268baf5e4ccc2"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/K2A.java",
+      "sha256": "56b92ce6ab96a0149755e7723272e3fa033e8ba5cc9834e4e6d65f84f27d5076"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Kernels.java",
+      "sha256": "607421026dd6dcc9f05187808147bf4e55fdb7d42c09dd96e834dfe628626d97"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/KissFFT.java",
+      "sha256": "27a226aa7ec7f9138cac7e675e84de21d22d9f60f961abc6848c4c65603f26bf"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/LPCInversePredGain.java",
+      "sha256": "c7b7a08a4304534eb119f212653c11e78ac13aa34db2eae7b7846006f875206a"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/LTPAnalysisFilter.java",
+      "sha256": "e8415854b17cf0843d75009aa83bf5b854ebebfae5d1eb4a08526add44be3ad6"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/LTPScaleControl.java",
+      "sha256": "b85aaa392422936f0f6d1d9ab676241ad73a125bcebe27fd6e6d31d4c8a015ec"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Laplace.java",
+      "sha256": "a62bc9882a303065a5f4364101b91749a87b7c6e9c431e063c6cc488b00494c5"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/LinearAlgebra.java",
+      "sha256": "1b094cb55ce3b06faf4468eef369a7efbf107699e6605eff688024811933a568"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/MDCT.java",
+      "sha256": "5e6f57dab2b016dec732fe9d7e664ab6322c493768ce515679ab631305307b01"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/MDCTLookup.java",
+      "sha256": "aee0900e7af837d55c4c216a203023462d02d406acf02ddcc6da6003db9933b8"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/MLP.java",
+      "sha256": "5801238186bdf82588a55e8763ce334d031dfbe8cb5b26006872e5ace037d5a4"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/MultiLayerPerceptron.java",
+      "sha256": "7414490940b774f7bd7aa8d085249e2c4777e03d06515b839dd90c3caf92cbf4"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/NLSF.java",
+      "sha256": "421cdf20f068bfab3c3bf2578bb5325d7e98a70c152e25d1fe654bb49a85008a"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/NLSFCodebook.java",
+      "sha256": "c77ea14070536284cd4cfc3ef773a7ef9438f265d0f38098533d8b32b8ac9eb2"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/NoiseShapeAnalysis.java",
+      "sha256": "77178cba4de9a2985acc6cc0eb9cd7219edd6bebc67b9abed3e91d1395b03c2f"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusApplication.java",
+      "sha256": "b1a96962ae784d82b8c1d1357b0fcb4427dbda661ecfc23096444a00a12d3f5a"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusBandwidth.java",
+      "sha256": "7b7854539143968202e4489356e8c8ac5708ea98a91b6e6c85b474e193203be0"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusConstants.java",
+      "sha256": "f51cecc69492438e27f2f48f8945476c8dbe05026c29eaa50ff32907a145785d"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusDecoder.java",
+      "sha256": "9fe38506beed9b55179075024582ed475e7ce7614afd51bd8878a50ee773e01e"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusEncoder.java",
+      "sha256": "73c2640440225c025084012d0fabb0bdf9d67f2934a1df4aecfa84f6e227f47f"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusError.java",
+      "sha256": "2d67ac4309a40a3066d261c2310a6d1eb322fb675f831cb024d2f3a2cd15b538"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusException.java",
+      "sha256": "dbff0112e7a46eddc2db38b6b209b93d95198a94ebb1bbed918491093daa1925"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusFramesize.java",
+      "sha256": "5c3057634356e0d7b1d5afeab67b55949ded3eea8bc206089d68acce2164e6c1"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusMSDecoder.java",
+      "sha256": "47de960581599b557722bdfcb39f47864d8b89845d5796c8c3778106011fa9e8"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusMSEncoder.java",
+      "sha256": "43105c78fb7fe3fa4b6206fdf6a16f49562eade1911592b04504e3b65ff17635"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusMode.java",
+      "sha256": "8a913ab5b5aedcac1a0c77c067b27ef5a638ff61b3b475f23aa46bd460e4df0b"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusMultistream.java",
+      "sha256": "9d93b9a6e365e11e1c64dde5e99611c56688d5519631fcd404b2fc85bec46da8"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusPacketInfo.java",
+      "sha256": "e1bff2050b03c17665aa1e6c16db5e181018cd005e99a3065a719dc86e5bfdb0"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusRepacketizer.java",
+      "sha256": "e47cf8acf7e7dc6be0e8f475ac59ac420eb05b5d3ff15eed4d91d5d7c08228c1"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusSignal.java",
+      "sha256": "df0e6dd6130e575e04920156ff1864a0a32057eeb6d4b7e1be6b6f03fce62d13"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/OpusTables.java",
+      "sha256": "987007525138c5c71ce392222de407cd721e47e4c5bb4096536542f7503a0e25"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/PLC.java",
+      "sha256": "27aca76b927d623191e34527b8a45374f19ba7307e7398151e5c050bb98bf29b"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/PLCStruct.java",
+      "sha256": "8e904cb1ce7ad5fa3d036843588430b845d31a3a317e910f46184028e034a088"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Pitch.java",
+      "sha256": "b5bb464f1f06ae6d151807cf099ba2ba48f78cbaf4165cc95d5fa1550f7cc428"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/PitchAnalysisCore.java",
+      "sha256": "cfdf43bc393048f12112d43d91e879e5745c17ceff9abed5d1c278bc4a9a0f8f"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/ProcessGains.java",
+      "sha256": "6e9f9c037b3fa959a2f21dbc9a5154f9ed38d5a67474331336c2d0d6f456b2f7"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/PulseCache.java",
+      "sha256": "65a8fea096b38a87cb71fb0ace2ace358f9d9a69dcf842a3303406782ebbae1c"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/QuantizeBands.java",
+      "sha256": "90f9499db56178ed7b08b4b248e1a9970d674dd0d58cd7bc07344183ebbfe3e7"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/QuantizeLTPGains.java",
+      "sha256": "7b2cda1a61b0dd64f4a6f3580f82b354ee501654dec052185f2ce99c41091a4b"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Rate.java",
+      "sha256": "8f1c7e56b7b48994be30dba4b5ca0e2388e31f4b9a543edd06242ea607717c36"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/RegularizeCorrelations.java",
+      "sha256": "282a337719bb3c5eb6aec7cca7b4d1bf22e8d5b78c3ae9eb5fbfb430a77966b6"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Resampler.java",
+      "sha256": "7ba37b9ef9bf2d70c2da7286c4e1239e302c021bcec0ee6fffbd26002cb5d7f7"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/ResidualEnergy.java",
+      "sha256": "8e66cde8587b22ae14f072347bf37ddbfd425ab00536dbef45ee235b842fa7df"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Schur.java",
+      "sha256": "39a056d72fec79be7bd1f792c1ece06e70c96add2d93214ceb17c55ccb1a858f"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/ShellCoder.java",
+      "sha256": "81631afeaa9ef95a2f5485405a640fd23a592caeb5f3e09c689100ba1e4cecee"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SideInfoIndices.java",
+      "sha256": "d04f086fc34d3fb0bfd1bc54228b17778f071d2d5f3e2bba3d6c480ce7e65988"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Sigmoid.java",
+      "sha256": "8327351c9bc86ee7ffd8586440667a78f65771b3190113e854eff08e669467a2"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkChannelDecoder.java",
+      "sha256": "d67221196db3970aa1acfc600083fdb3c6d4d2f564f894c4b1303cf01a462438"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkChannelEncoder.java",
+      "sha256": "b4ad1bf91cdca279931209ea65c142eaae2330b0798ec33e137e4a38d31d22a4"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkConstants.java",
+      "sha256": "12ebeb6b066aa739f4a2462d7081b091a93454809bfd35ad13346e7fdb90e369"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkDecoder.java",
+      "sha256": "baa65bff229fc4a9c6b4c50a20375474157f7cfb345e7899df16da85a9cb8b38"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkDecoderControl.java",
+      "sha256": "585b119534117eeb4e403fe296b5ae209fe4e47521610f40263031f5b38da493"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkEncoder.java",
+      "sha256": "f1ad525be2ef5ca337b38970e34b70390e9865714bb4ddddaad697686bf85693"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkEncoderControl.java",
+      "sha256": "c2bdc28884ceb85702ad1562667ff0e32e676f7d705c50426705021387375123"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkError.java",
+      "sha256": "a05028f248d4a8523164fcea5e11070b1387d143b7ea140e66b360161e71d100"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkLPState.java",
+      "sha256": "fb0300ebd9e8b2ad5aa55705e236f57625c916d6799ead196b468f0f250a3c53"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkNSQState.java",
+      "sha256": "167dcd49ae1fac1129df1df753e03f0cd1681a12eddef5fa8887c23e9178d72d"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkPrefilterState.java",
+      "sha256": "a4a90c29f1a60eb64eabb9521eb46cab93d987b2e419051bfb7001d7e8fd00a3"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkResamplerState.java",
+      "sha256": "7b4a7f825c98c0400e44788adff178aca704646e345be5e7f14f3db7ba8bdd6f"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkShapeState.java",
+      "sha256": "9898937be7ed75ec8024ce4bb86f238d77beff7dda05644d09d75c9fe96ad49b"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkTables.java",
+      "sha256": "09635c795723d462ba76f1c99903940d94453096523c689e3f2149a3ac086013"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SilkVADState.java",
+      "sha256": "6d8de4441a8177d2d05799da89f87c38fc7e0ac2544c4a478a706e61ae6e47e1"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Sort.java",
+      "sha256": "9021564609706efd2ddd2eff88fd506c74e2612aa4da004a269126d2ea80c1d9"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SpeexResampler.java",
+      "sha256": "e2e1216395165c5cfc9d67aeade5bf0a139062615780ab70fbe9f22fbf982094"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Spread.java",
+      "sha256": "1639fbdf720a5f384431add0a17b9036e8de8538e3039ce56cbd149e406f605d"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/Stereo.java",
+      "sha256": "21d2f6c3d683fdeed61ceb01cd78b03de8ae8823d5472e294f24675e8e99f6e9"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/StereoDecodeState.java",
+      "sha256": "4b900ab451305e0be239f9c911aa2398fe0df1e27624d78bfa71c7285ce29a68"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/StereoEncodeState.java",
+      "sha256": "4e53f41f939488c2278204f0ff7a6659ff4440368efc73e921d928dd924bd4c5"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/StereoWidthState.java",
+      "sha256": "0fa579d2e323479b7f4f24a5ce5c379f0a9e705473eeec440eabdd910f0763c7"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/SumSqrShift.java",
+      "sha256": "eb174007202755637f1d840f331c33896af6ac3cc7b570b9e2594031ec93372a"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/TOCStruct.java",
+      "sha256": "717af265fcbc2c156965fad05b428f1710abb72744e1c952103afe0f2db65c77"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/TonalityAnalysisState.java",
+      "sha256": "d97a1dd28f3844bede2376b2f6d3764345e0b852f642a68b549cd0217bf7d2f5"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/TuningParameters.java",
+      "sha256": "c62321ee77a585c6cb16ca3f8ba5da830ce33608ad3d3a6c07cfc8823cb108c8"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/VQ.java",
+      "sha256": "7103d3f1c686071481c43791044896ecabdc318b5efe5131e393875c7994a2de"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/VQ_WMat_EC.java",
+      "sha256": "f5b8e105a83059a1566b527bccc19c0dc37e342e2f88489a8eaa8912c381a9d2"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/VoiceActivityDetection.java",
+      "sha256": "8746f98d1604de669dec05ff5d3eec9bbb57e876cbfa187f39bf49bd4dc9596f"
+    },
+    {
+      "path": "app/src/main/java/org/concentus/VorbisLayout.java",
+      "sha256": "2f66b2e0eec6e1896ae05a9fa10973ecde3f6f2c35aca4ff82aa4860e356a542"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_launcher.xml",
+      "sha256": "e8760fe8e79d60bce1677bfe51524ce6a063c68765f3cb392310d296b4b89416"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_wave.xml",
+      "sha256": "d6e8d53985348caa0a128196d5a7c8c197112d72cdf6869023ac1c04459eda1c"
+    },
+    {
+      "path": "app/src/main/res/values/styles.xml",
+      "sha256": "abca2b55230a96b21e05cc3a6716baff115bb8926397d00f87c3cd1a3f95c7d6"
+    },
+    {
+      "path": "app/src/main/res/xml/data_extraction_rules.xml",
+      "sha256": "4312f6a4ae518249ba932ebef75af3e6e7d1e5b30a161bc2e9b69e400314b90c"
+    },
+    {
+      "path": "tests/buttons/run_android_checks.py",
+      "sha256": "b5e3a70fa79a0d99fb05fba491ecdf36331167b5e83e4b72fcc430035030a7da"
+    },
+    {
+      "path": "tests/buttons/test_android_runner.py",
+      "sha256": "5785960192bec602425b9ffcd241691eedc1d0612ee7eba6bf0d813c3715e452"
+    },
+    {
+      "path": "tests/capture/CaptureServiceHostTest.java",
+      "sha256": "d89f3997818fa718babe66e355882becf330319616f6222a8ff742858f5576e8"
+    },
+    {
+      "path": "tests/capture/ModelInstallerHostTest.java",
+      "sha256": "63d6c0f3b3212e8925876146271e49931a30525587513267bed71b0218606e5f"
+    },
+    {
+      "path": "tests/capture/PreviewModelInstallerHostTest.java",
+      "sha256": "f68c426dd72bb4ed397a231394f6360c21518d38be1d9cbd5b4b9cde67f9034b"
+    },
+    {
+      "path": "tests/capture/run_host_checks.py",
+      "sha256": "82d7a8eba1f1f389a67f390770734c6e554a72136a6b4274587dd2049303ad78"
+    },
+    {
+      "path": "tests/hybrid/HybridDeviceProbe.java",
+      "sha256": "6cf7ada6974b136f03e007b266035741ca94878113ed32d19273680664e70457"
+    },
+    {
+      "path": "tests/hybrid/RefinementEngineHostTest.java",
+      "sha256": "e7ac77e88db05a74a9e79316b3fae0e82d89ceda708f0d585fb359acd04cbbd0"
+    },
+    {
+      "path": "tests/hybrid/run_android_checks.py",
+      "sha256": "7b813b1ac72e8e9decfbce023fea781edf4246207573a004c2d8c0d120fecd0f"
+    },
+    {
+      "path": "tests/hybrid/run_archive_probe.py",
+      "sha256": "b6174650a51fd7932dc60e3346e632953bc9e70cedf1dac4dac5de0df764ffab"
+    },
+    {
+      "path": "tests/hybrid/run_device_probe.py",
+      "sha256": "7a388e56cfd5875ae886e821267383c4202a615a58efa37c5592e41ea0ed7208"
+    },
+    {
+      "path": "tests/hybrid/run_host_checks.py",
+      "sha256": "0a350042a89cb5a6b718d41118411d2556c9fc5f99a2aac3f90b04178b18fb73"
+    },
+    {
+      "path": "tests/hybrid/run_job_checks.py",
+      "sha256": "cb3509e993f659e2b05c9f6411701a649a7e7eef05df5b5ebe5b85278270d60f"
+    },
+    {
+      "path": "tests/hybrid/verify_apk.py",
+      "sha256": "c3af1da54a6255d42b7e27bbe773f5da3884677c6f5a6a81dea4508af07eff3f"
+    },
+    {
+      "path": "tests/library-dates/LibraryDatesTest.java",
+      "sha256": "a3affc1dd562b712be8875fa4e05be46869064de2f53bd23057f3805bda39ca5"
+    },
+    {
+      "path": "tests/library-dates/run_host_checks.py",
+      "sha256": "8cf444e938950d455ed855fdf2bb19b09ecae21fc6cef3a397a6c366f062e9ac"
+    },
+    {
+      "path": "tests/live-transcript/LiveTranscriptTest.java",
+      "sha256": "346edf38392e06789f1ea6c0ddd7c2c5668c75afee2311b11ab8f7a63910996c"
+    },
+    {
+      "path": "tests/omi-capture/OmiBle.java",
+      "sha256": "3a9822e84c709eeac4b78045ef00bb5bcfab78e9c933be7b7a6e6d6231da03c3"
+    },
+    {
+      "path": "tests/omi-capture/OmiCaptureServiceHostTest.java",
+      "sha256": "3cb64df4bf98eb9f7bc1104775b0c3dff28daf8cf8f0fadd5c8560a1a01eb8b8"
+    },
+    {
+      "path": "tests/omi-capture/run_host_checks.py",
+      "sha256": "1dce4f887db0584d24bef7ed4ac164aec789a8965bb7d7f370d960b95be752d2"
+    },
+    {
+      "path": "tests/omi-composition/ControlsCompositionHostTest.java",
+      "sha256": "1538c369e4c56b60f3415d1418be97d5e41e8980dda0299ad27da848b74c14b1"
+    },
+    {
+      "path": "tests/omi-composition/OmiCompositionHostTest.java",
+      "sha256": "a7c0b45b8cc94399e2ce205afb7314b0e8de3f21b0e32621a00837e875c9f12a"
+    },
+    {
+      "path": "tests/omi-composition/README.md",
+      "sha256": "a4b884334521a708677e76b6152e7731f6fbef6d6e1cae95184e5b158071929e"
+    },
+    {
+      "path": "tests/omi-composition/run_host_checks.py",
+      "sha256": "5c7a7e149445d6d48d9f177176196eb055c5676b44668758f86b7dc8318011a2"
+    },
+    {
+      "path": "tests/omi-composition/stubs/android/os/Handler.java",
+      "sha256": "6f886ac23fe7d8e4beedf9215c84f37cfe5dc346ed29e121d7a64446d31f9a78"
+    },
+    {
+      "path": "tests/omi-composition/stubs/android/os/HandlerThread.java",
+      "sha256": "baa029610d68487f3852356430a74c8dcc700b4e20441db0b1d356858de77834"
+    },
+    {
+      "path": "tests/omi-composition/stubs/android/os/Looper.java",
+      "sha256": "87a852a4cd9621a8483d431f5fa688719479c8eef538d426161e44d8c92dc208"
+    },
+    {
+      "path": "tests/omi-composition/stubs/app/nottheomi/ai/Recordings.java",
+      "sha256": "af0c4d733403043b278805376f4382920a3d81bf9b3d0aab87a9f5b71bd2c711"
+    },
+    {
+      "path": "tests/omi/BatteryBleTest.java",
+      "sha256": "23a4a375ba08924b6a97028556790bed59fae7bd95e5382bbfc5bcc7431c5e1d"
+    },
+    {
+      "path": "tests/omi/ButtonBleTest.java",
+      "sha256": "f44e7fbe0636ed96ceaded42590b9b2ef43f7bc5825b3270dc49e525b6e9f6a9"
+    },
+    {
+      "path": "tests/omi/ControlsBleTest.java",
+      "sha256": "0bf46b5e75b64a2c992324b88f497252ecf63fb4ad9f3da3c0b293e7deac7ed1"
+    },
+    {
+      "path": "tests/omi/GestureBleTest.java",
+      "sha256": "835fad1edc91fd52b5c5538db6e61a267bc38bad27e2dad0e46c984d03839bbf"
+    },
+    {
+      "path": "tests/omi/HapticBleTest.java",
+      "sha256": "67f2b6b5f01041e4ccab9eac999ec1a15caf32b598d99d70658a806082bcd170"
+    },
+    {
+      "path": "tests/omi/LedBleTest.java",
+      "sha256": "018bba82ec02b1f71f7e218de186a3cdcaea55c0eb52c3d4f367e4b3c78f3aa3"
+    },
+    {
+      "path": "tests/omi/README.md",
+      "sha256": "75596c84f5f1522a557e579e7ccd0fff9701344bcdc1bb1e0589e25c53b7687d"
+    },
+    {
+      "path": "tests/omi/ReconnectBleTest.java",
+      "sha256": "b84069d95feb57793daf1632d2919a4c532b84651524a55d498919cd21e608fd"
+    },
+    {
+      "path": "tests/omi/TransportBleTest.java",
+      "sha256": "31f55ea7a0789406c239209ef5146505cf8da0c2dad738abfc0efc2015ba4392"
+    },
+    {
+      "path": "tests/omi/run_battery_ble_tests.py",
+      "sha256": "0f4c66aebe8644cf100e69db384aecfe6ea16a4ba14caddf43fb5b6a2e8413d6"
+    },
+    {
+      "path": "tests/omi/run_ble_tests.py",
+      "sha256": "d62a215f1747ddce1cb9aae8ca4b8118bca8c4c5caa410ff821f901589a3aa89"
+    },
+    {
+      "path": "tests/omi/run_button_ble_tests.py",
+      "sha256": "1e27db2f4393c0e95a43484967f795d4fede2835cdff75007fc2db1a045dd246"
+    },
+    {
+      "path": "tests/omi/run_led_ble_tests.py",
+      "sha256": "5148d99f78a4bbde1498eff3cb582d76961777e3869f95b85c79754f0092654e"
+    },
+    {
+      "path": "tests/omi/run_reconnect_tests.py",
+      "sha256": "cf6a009115ed143579cecae6408caf2919fb62ba520a8e801532e695f2970fd0"
+    },
+    {
+      "path": "tests/ui/UiSnapshot.java",
+      "sha256": "47d6e21ce04bfb6ce81c4144bc10ee7a2c824ef2509062affb7461ffeb2f8f33"
+    },
+    {
+      "path": "tests/whisper-device/WhisperDeviceProbe.java",
+      "sha256": "a4c78a7dbe22a63c7050228e67fe87a03dad4a5741977f480360088f4a450019"
+    },
+    {
+      "path": "tests/whisper-device/verify_apk.py",
+      "sha256": "9ad54fd60298be7db3a76545bcf51281ff29c62f22049a2d33d9509c972a7ca2"
+    },
+    {
+      "path": "tests/whisper-java/run_host_checks.py",
+      "sha256": "81aed2016fa72121d34cc5eef8020ce4809ec9affaa96d32aabb8535ef830fb5"
+    },
+    {
+      "path": "tests/whisper-native/NativeSafetyTest.java",
+      "sha256": "751ba2c09fc54ccac03e5a7a43a8e3adde3d0b2d8e43754a30dc0da7847219ad"
+    },
+    {
+      "path": "tests/whisper-native/run_safety_tests.py",
+      "sha256": "7072281a8d9cc600cf7a658108ea091526db3cdda943f51a10eaf975b83dfd39"
+    }
+  ],
+  "retained_verification": {
+    "android_test_methods": 125,
+    "signed_emulator_apk_sha256": "5832a4e996ad54aa063991d39bd121c3c1e3b852fe641ae904db319581d58397",
+    "signed_arm64_apk_sha256": "ac4d7c8d3cfefc15d1119f21fb752d51b2c4443c64c48b59ec8b0573e1ce6fc2",
+    "note": "Prior build/lint, emulator test and in-place USB installation receipts remain private; no fresh Android run or phone change during publication."
+  },
+  "publication_only_changes": [
+    "README.md",
+    "docs/index.html",
+    "tests/pages/check_site.py",
+    "THIRD_PARTY_NOTICES.md",
+    "verification/PUBLIC-SOURCE-0.4.12.md",
+    "verification/fresh-host-checks-0.4.12.json",
+    "verification/public-source-provenance-0.4.12.json"
+  ],
+  "preserved_portable_variants": [
+    "tests/ui/README.md",
+    "tests/whisper-device/run_probe.py"
+  ],
+  "excluded": [
+    "private runtime evidence and device identifiers",
+    "signing material",
+    "generated model weights and native binaries",
+    "local machine configuration"
+  ],
+  "downloadable_release_unchanged": "v0.4.11 / versionCode 18",
+  "physical_acceptance": "Pending wearable four/five cadence, vibration patterns and background/locked-screen flashlight"
+}
