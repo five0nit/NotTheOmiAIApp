@@ -19,12 +19,13 @@ GitHub Pages serves this directory from `main` at https://five0nit.github.io/Not
 7. Commit only documentation and its tests. Verify the Pages build and fetch the live HTML/CSS/images; compare their hashes with the commit before announcing publication.
 
 ## Release boundaries documented here
-- Public source/APK: 0.4.7 / build14.
-- Current separately verified build: 0.4.11 / build18.
+- Latest public APK: 0.4.11 / build18, signed arm64-v8a preview.
+- Public application source: 0.4.7 / build14. Automatic source archives do not contain the 0.4.11 application changes.
+- Keep direct APK links, release links, README, JSON-LD, feature labels and regression expectations aligned. State Android-only for now, no iOS version, and Android 8+ ARM64 near the download.
 - 0.4.8+: 15GB retained PCM limit and RF64 WAV export.
-- 0.4.9: control-path refinements; do not claim every behaviour was newly introduced here. Current 0.4.11 includes expanded media actions and opt-in experimental triple-press (650ms combined-tap window), absent from public 0.4.7.
+- 0.4.9: control-path refinements; do not claim every behaviour was newly introduced here. Current 0.4.11 includes expanded media actions and opt-in experimental triple-press (650ms combined-tap window), absent from the older 0.4.7 APK and public source.
 - Current UI includes a manual double-pulse test. Automatic notification events respect any active DND mode; the manual test checks the switch/access/connection but not DND itself.
 - 0.4.10+: default-off notification haptics over the existing BLE connection.
 - 0.4.11: nonterminal recovery for valid PCM-capacity exhaustion, not a fix for every BLE failure.
 
-Never conflate static/host/emulator verification with physical wearable, locked-phone delivery or all-day endurance acceptance. Publishing this site does not publish a binary or install/change an app.
+Never conflate static/host/emulator verification with physical wearable, locked-phone delivery or all-day endurance acceptance. Publishing a documentation change alone does not publish a binary or install/change an app. Verify the exact release assets before advancing download links; keep preview status distinct from a stable release.

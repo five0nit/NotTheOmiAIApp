@@ -52,9 +52,18 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(self.doc.meta["og:url"], URL)
         self.assertIn('rel="canonical" href="' + URL + '"', self.html)
     def test_version_separation(self):
-        for text in ("0.4.11", "0.4.7", "not included in the public 0.4.7 APK", "/releases/tag/v0.4.7"):
+        for text in ("0.4.11 / build 18", "Public source remains", "0.4.7 / build 14", "/releases/tag/v0.4.11", "/releases/tag/v0.4.7"):
             self.assertIn(text, self.html)
-        self.assertNotIn("/releases/latest", self.html)
+        for stale in ("not in public APK", "No public 0.4.11 download", "not a public 0.4.11 download", "/releases/latest"):
+            self.assertNotIn(stale, self.html)
+    def test_latest_download_and_android_only(self):
+        apk = "https://github.com/five0nit/NotTheOmiAIApp/releases/download/v0.4.11/NotTheOmiAIApp-0.4.11-arm64-v8a.apk"
+        self.assertGreaterEqual(self.doc.links.count(apk), 2)
+        for text in ("Download v0.4.11 APK", "Android only for now", "no iOS version", "Android 8+", "arm64-v8a"):
+            self.assertIn(text, self.html)
+        readme = (ROOT / "README.md").read_text()
+        for text in (apk, "Android only for now", "0.4.7 / versionCode 14", "0.4.11 / build 18"):
+            self.assertIn(text, readme)
     def test_complete_feature_topics(self):
         for text in ("Vosk", "Whisper", "small.en Q5_1", "AES-GCM", "Keystore", "RF64", "15,000,000,000", "128 MiB", "Notification vibrations", "No action", "Phone shortcut", "Calendar", "Search", "Rename", "Export text", "Export audio", "Delete recording", "Refine / retry with Whisper", "View original live draft", "Phone microphone", "120 seconds"):
             self.assertIn(text, self.html, text)
@@ -73,7 +82,7 @@ class SiteTests(unittest.TestCase):
         html = unescape(self.html)
         for action in ("Bookmark in transcript", "Start recording", "Stop & save", "Start / stop recording", "Play / pause music", "Pause music", "Play music", "Next track", "Previous track", "Stop music", "Fast-forward music", "Rewind music", "Media volume up", "Media volume down", "Mute / unmute media", "Phone shortcut", "No action"):
             self.assertIn(action, html)
-        for phrase in ("experimental combined taps", "650 ms", "Wearable shake is unavailable", "not in public APK"):
+        for phrase in ("experimental combined taps", "650 ms", "Wearable shake is unavailable", "Included in 0.4.11"):
             self.assertIn(phrase, html)
     def test_library_browsing_controls(self):
         for phrase in ("Today", "All dates", "12 per page", "Refresh saved recordings", "case-insensitive substring", "without a plaintext playback cache"):

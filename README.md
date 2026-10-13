@@ -1,20 +1,29 @@
-# NotTheOmiAIApp 0.4.7
+# NotTheOmiAIApp
 
 Independent **offline Omi companion for Android 8+**. Public Android application source, tests and build tooling. Not affiliated with Omi or Based Hardware.
 
 **[Explore the app and full feature guide →](https://five0nit.github.io/NotTheOmiAIApp/)**
 
-The guide explains recording, transcription, Library, wearable controls, privacy and setup. It distinguishes the public **0.4.7** checkpoint from documented features in the newer **0.4.11** build; this documentation update does not publish a newer APK or app source.
+**Android only for now — no iOS version.** Latest signed download: **0.4.11 / build 18**, for Android 8+ ARM64 phones.
+
+**[Download v0.4.11 APK ↓](https://github.com/five0nit/NotTheOmiAIApp/releases/download/v0.4.11/NotTheOmiAIApp-0.4.11-arm64-v8a.apk)** · [Release notes, checksums and licences](https://github.com/five0nit/NotTheOmiAIApp/releases/tag/v0.4.11)
+
+The feature guide covers the downloadable **0.4.11** APK. Public application source remains **0.4.7**; the source and binary are separate checkpoints.
 
 **Source version: 0.4.7 / versionCode 14.** Application license: [MIT](LICENSE); third-party components retain their [own notices](THIRD_PARTY_NOTICES.md).
 
 ## Source and APK downloads
 
 - This branch contains the **0.4.7 source**, including recording recovery, the calendar Library and configurable button actions.
-- [Public v0.4.7 preview APK](https://github.com/five0nit/NotTheOmiAIApp/releases/tag/v0.4.7) is available for `arm64-v8a`, with matching checksums, manifest and licences attached to that release. Public source and binary releases remain separate checkpoints.
-- The [v0.3.1 download](https://github.com/five0nit/NotTheOmiAIApp/releases/tag/v0.3.1), root `SHA256SUMS.txt`, `release-manifest.json` and `RELEASE-NOTES-0.3.1.md` describe **older 0.3.1 binaries**, not the 0.4.7 release.
-- The feature guide also documents a newer 0.4.11 build; it is not a public 0.4.11 download. A GitHub source ZIP is not an installable APK.
+- [Latest v0.4.11 preview APK](https://github.com/five0nit/NotTheOmiAIApp/releases/tag/v0.4.11) is available for `arm64-v8a`, with matching checksums, manifest and licences attached to that release. It adds the 15 GB retained PCM quota, RF64 export, expanded media/triple-press controls, optional notification vibrations and queue-capacity recovery.
+- [Older v0.4.7 preview](https://github.com/five0nit/NotTheOmiAIApp/releases/tag/v0.4.7) remains available as a historical release.
+- The [v0.3.1 download](https://github.com/five0nit/NotTheOmiAIApp/releases/tag/v0.3.1), root `SHA256SUMS.txt`, `release-manifest.json` and `RELEASE-NOTES-0.3.1.md` describe **older 0.3.1 binaries**, not the 0.4.11 release.
+- GitHub-generated source ZIPs contain the public 0.4.7 application checkpoint, not the 0.4.11 changes. They are not installable APKs or matching 0.4.11 build inputs.
 - Package: `app.nottheomi.ai`. Install updates over the existing app only with the same signer; **do not uninstall or clear data** to preserve the local encryption key and recordings. Your own signing key cannot update an existing differently signed installation.
+
+## Public source checkpoint (0.4.7)
+
+The implementation notes and build instructions below describe **0.4.7 source**, not the newer downloadable binary. Use the [feature guide](https://five0nit.github.io/NotTheOmiAIApp/) and [v0.4.11 release notes](https://github.com/five0nit/NotTheOmiAIApp/releases/tag/v0.4.11) for current APK behaviour.
 
 ## What it does
 
