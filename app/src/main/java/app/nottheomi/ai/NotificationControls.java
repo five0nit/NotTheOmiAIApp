@@ -29,7 +29,7 @@ public final class NotificationControls {
     private static final String[] PATTERN_LABELS = HapticPatterns.labels();
     private static final String[] OVERRIDE_LABELS = {"Use default pattern", "Short pulse", "Double pulse", "Triple pulse", "Long pulse"};
     private final Activity activity;
-    private final Choice mode, defaultPattern;
+    private final Choice mode, filter, defaultPattern;
     private final TextView summary;
     private final Button choose;
     private AlertDialog appsDialog;
@@ -53,6 +53,13 @@ public final class NotificationControls {
             });
         summary = label(parent, "", 14, INK);
         summary.setTag("omi.notifications.selection.summary");
+        filter = choice(parent, "Notification filter", "omi.notifications.filter",
+            new String[]{"All notifications", "Alerting only"}, position -> {
+                NotificationVibrations.setFilter(activity, position == 0
+                    ? NotificationVibrations.FILTER_ALL : NotificationVibrations.FILTER_ALERTING);
+                refresh();
+            });
+        label(parent, "All notifications includes silent, low-priority, grouped and ongoing posts, including during phone Do Not Disturb. Alerting only restores the previous filters. App selection still applies; Android must deliver the notification to this app.", 13, MUTED);
         defaultPattern = choice(parent, "Default vibration pattern", "omi.notifications.pattern.default",
             PATTERN_LABELS, position -> {
                 NotificationVibrations.setDefaultPattern(activity, PATTERNS[position]);
@@ -65,7 +72,7 @@ public final class NotificationControls {
         choose.setMinHeight(dp(50));
         choose.setOnClickListener(view -> showApps());
         parent.addView(choose, new LinearLayout.LayoutParams(-1, -2));
-        label(parent, "Patterns use your Omi motor, not the phone. Short, double and triple use one, two or three short pulses; long uses one longer pulse. Timing depends on firmware and BLE. Silent, ongoing, own-app and Do Not Disturb notifications are still skipped.", 13, MUTED);
+        label(parent, "Patterns use your Omi motor, not the phone. Short, double and triple use one, two or three short pulses; long uses one longer pulse. Timing depends on firmware and BLE. Own-app notifications, duplicate deliveries and old notifications are skipped. Bursts are limited to one pattern every 1.5 seconds; no backlog is replayed.", 13, MUTED);
         refresh();
     }
 
@@ -76,8 +83,9 @@ public final class NotificationControls {
             boolean all = NotificationVibrations.MODE_ALL.equals(NotificationVibrations.mode(activity));
             Set<String> selected = NotificationVibrations.selectedPackages(activity);
             mode.sync(all ? 0 : 1);
+            filter.sync(NotificationVibrations.includeAllNotifications(activity) ? 0 : 1);
             defaultPattern.sync(patternIndex(NotificationVibrations.defaultPattern(activity)));
-            String status = all ? "All eligible apps · " + selected.size() + " saved selections"
+            String status = all ? "All apps · " + selected.size() + " saved selections"
                 : selected.isEmpty() ? "Selected apps only · 0 selected — no apps will vibrate"
                 : "Selected apps only · " + selected.size() + " selected packages";
             summary.setText(status);

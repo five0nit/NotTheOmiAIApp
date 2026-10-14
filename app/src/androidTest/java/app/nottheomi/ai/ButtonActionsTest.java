@@ -305,13 +305,13 @@ public final class ButtonActionsTest extends ActivityInstrumentationTestCase2<Om
         Context denied=new ContextWrapper(context){@Override public int checkSelfPermission(String permission){return Manifest.permission.POST_NOTIFICATIONS.equals(permission)?PackageManager.PERMISSION_DENIED:super.checkSelfPermission(permission);}};
         if(Build.VERSION.SDK_INT>=33){String outcome=ButtonActions.launchShortcut(denied,1);assertTrue(outcome.contains("not launched"));assertTrue(outcome.contains("allow notifications"));}
     }
-    public void testSyntheticSettingsScreenshotPreservesSecureWindow() throws Exception {
+    public void testSyntheticSettingsAllowsSystemScreenshotAfterRecreation() throws Exception {
         ButtonActions.setAction(context,1,"toggle");ButtonActions.setAction(context,2,"media_pause");
         assertTrue(ButtonActions.saveTarget(context,1,target("preview"),"Synthetic test app",fixturePackage));
         recreate();
         main(()->{
             OmiCaptureService.controlsActive=true;refresh();
-            assertTrue((activity.getWindow().getAttributes().flags&WindowManager.LayoutParams.FLAG_SECURE)!=0);
+            assertEquals(0,activity.getWindow().getAttributes().flags&WindowManager.LayoutParams.FLAG_SECURE);
             ViewGroup holder=activity.findViewById(android.R.id.content);ScrollView scroll=(ScrollView)holder.getChildAt(0);View content=scroll.getChildAt(0);
             assertTrue(content.getWidth()>0);assertTrue(content.getHeight()>0);
             Bitmap image=Bitmap.createBitmap(content.getWidth(),content.getHeight(),Bitmap.Config.ARGB_8888);
@@ -319,6 +319,12 @@ public final class ButtonActionsTest extends ActivityInstrumentationTestCase2<Om
             finally{image.recycle();}
         });
         assertTrue(new File(activity.getFilesDir(),"buttons-settings-preview.png").length()>0);
+        getInstrumentation().waitForIdleSync();
+        Bitmap screenshot=getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull("Android can capture Settings",screenshot);
+        try(FileOutputStream out=new FileOutputStream(new File(activity.getExternalFilesDir(null),"settings-system-screenshot.png"))){
+            assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG,100,out));
+        } finally {screenshot.recycle();}
     }
 
     private Intent target(String which){return new Intent(Intent.ACTION_VIEW).setComponent(launch).putExtra("which",which);}

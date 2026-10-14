@@ -52,7 +52,13 @@ public final class HomeActivityTest extends ActivityInstrumentationTestCase2<Mai
         call("refreshCapture");assertEquals("Connect Omi",text("recordButton"));
         assertTrue(text("preview").contains("Connect your Omi"));assertTrue(text("finalText").contains("Finished phrases"));
         assertNotNull(field("historyRows"));assertFalse(CaptureService.active);assertFalse(OmiCaptureService.active);
-        assertTrue((activity.getWindow().getAttributes().flags&android.view.WindowManager.LayoutParams.FLAG_SECURE)!=0);
+        assertEquals(0,activity.getWindow().getAttributes().flags&android.view.WindowManager.LayoutParams.FLAG_SECURE);
+        getInstrumentation().waitForIdleSync();
+        android.graphics.Bitmap screenshot=getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull("Android can capture Home",screenshot);
+        try(java.io.FileOutputStream out=new java.io.FileOutputStream(new java.io.File(activity.getExternalFilesDir(null),"home-system-screenshot.png"))){
+            assertTrue(screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out));
+        } finally {screenshot.recycle();}
     }
 
     public void testLivePartialAndPersistedFinalRemainSeparate() throws Exception {

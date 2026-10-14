@@ -78,7 +78,6 @@ public final class OmiSettingsActivity extends Activity {
         restorePending(state);
         connectAfterSelection=getIntent().getBooleanExtra(CONNECT_AFTER_SELECTION,false);
         initialScan=connectAfterSelection&&state==null;
-        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
         ScrollView scroll=new ScrollView(this);page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(dp(22),dp(18),dp(22),dp(24));page.setBackgroundColor(PAPER);scroll.addView(page);setContentView(scroll);
         addButton("‹  Back to home",()->finish());label(connectAfterSelection?"Connect your Omi":"Omi device & controls",26,INK);
@@ -97,7 +96,7 @@ public final class OmiSettingsActivity extends Activity {
         controlsButton.setTag("omi.controls.connect");
         label("Button-only mode stays connected to your Omi while idle. No audio is saved until you choose Start recording or Start / stop recording. Stop & save returns to button-only mode; Disconnect buttons ends the idle connection.",13,MUTED);
         label("Notification vibrations",22,INK);
-        label("Configurable pulses on supported modern Omi firmware for new alerting notifications. Off by default. Works on your existing recording or button-only connection; never starts recording or connects by itself. Silent notifications, ongoing status and duplicates are skipped; Do Not Disturb is respected. Bursts are limited to one pattern per 1.5 seconds; busy or disconnected events are skipped, never replayed.",13,MUTED);
+        label("Configurable pulses on supported modern Omi firmware for new notifications. Off by default. Works on your existing recording or button-only connection; never starts recording or connects by itself. The All notifications filter includes silent and grouped posts, even during phone Do Not Disturb. Choose Alerting only below for the previous filtering. Bursts are limited to one pattern per 1.5 seconds; busy or disconnected events are skipped, never replayed.",13,MUTED);
         notificationToggle=new Switch(this);notificationToggle.setText("Notification vibrations");
         notificationToggle.setTextOff("Off");notificationToggle.setTextOn("On");notificationToggle.setShowText(true);
         notificationToggle.setTextSize(16);notificationToggle.setTextColor(INK);notificationToggle.setMinHeight(dp(56));

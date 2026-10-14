@@ -54,23 +54,26 @@ class SiteTests(unittest.TestCase):
             self.assertTrue(self.doc.meta.get(key), key)
         self.assertEqual(self.doc.meta["og:url"], URL)
         self.assertIn('rel="canonical" href="' + URL + '"', self.html)
-    def test_version_separation(self):
+    def test_current_source_and_preview_release(self):
         for document in (self.text, self.readme):
-            for text in ("0.4.11 / build 18", "0.4.12 / versionCode 19", "No v0.4.12 APK release"):
-                self.assertTrue(text in document, "Missing source/download distinction: " + text)
-            for stale in ("source remains at", "source remains **0.4.7**", "0.4.7 source", "0.4.7 / build 14", "/releases/latest"):
+            for text in ("0.4.13 / build 20", "0.4.13 / versionCode 20", "preview", "prerelease", "historical", "0.3.1"):
+                self.assertTrue(text in document, "Missing current release/history detail: " + text)
+            for stale in ("0.4.11 / build 18", "0.4.12 / versionCode 19", "New in source 0.4.12", "Not in the APK download", "source 0.4.12 only", "source-only controls", "ahead of the binary", "source remains at", "/releases/latest"):
                 self.assertFalse(stale in document, "Stale source/download claim: " + stale)
         for document in (self.html, self.readme):
             self.assertNotRegex(document, r'/releases/(?:tag|download)/v0\.4\.12')
+            self.assertIn("https://github.com/five0nit/NotTheOmiAIApp/releases/tag/v0.4.13", document)
+            self.assertIn("verification/PUBLIC-SOURCE-0.4.13.md", document)
     def test_latest_download_and_android_only(self):
-        apk = "https://github.com/five0nit/NotTheOmiAIApp/releases/download/v0.4.11/NotTheOmiAIApp-0.4.11-arm64-v8a.apk"
+        apk = "https://github.com/five0nit/NotTheOmiAIApp/releases/download/v0.4.13/NotTheOmiAIApp-0.4.13-arm64-v8a.apk"
         self.assertGreaterEqual(self.doc.links.count(apk), 2)
-        for text in ("Download v0.4.11 APK", "Android only for now", "no iOS version", "Android 8+", "arm64-v8a"):
-            self.assertIn(text, self.html)
-        for text in (apk, "Android only for now", "0.4.12 / versionCode 19", "0.4.11 / build 18"):
-            self.assertTrue(text in self.readme, "Missing README release detail: " + text)
-        downloads = [href for href in self.doc.links if "/releases/download/" in href]
-        self.assertEqual(set(downloads), {apk})
+        for document in (self.html, self.readme):
+            for text in (apk, "Download v0.4.13 APK", "Android only for now", "no iOS version", "Android 8+", "API 26", "arm64-v8a"):
+                self.assertTrue(text in document, "Missing download/platform detail: " + text)
+            downloads = re.findall(r'https://github\.com/five0nit/NotTheOmiAIApp/releases/download/[^\s\"<)]+', document)
+            self.assertEqual(set(downloads), {apk})
+        for stale_size in ("243,361,347", "243 MB"):
+            self.assertNotIn(stale_size, self.html)
     def test_complete_feature_topics(self):
         for text in ("Vosk", "Whisper", "small.en Q5_1", "AES-GCM", "Keystore", "RF64", "15,000,000,000", "128 MiB", "Notification vibrations", "No action", "Phone shortcut", "Calendar", "Search", "Rename", "Export text", "Export audio", "Delete recording", "Refine / retry with Whisper", "View original live draft", "Phone microphone", "120 seconds"):
             self.assertIn(text, self.html, text)
@@ -88,27 +91,27 @@ class SiteTests(unittest.TestCase):
         html = unescape(self.html)
         for action in ("Bookmark in transcript", "Start recording", "Stop & save", "Start / stop recording", "Play / pause music", "Pause music", "Play music", "Next track", "Previous track", "Stop music", "Fast-forward music", "Rewind music", "Media volume up", "Media volume down", "Mute / unmute media", "Phone shortcut", "No action"):
             self.assertIn(action, html)
-        for phrase in ("experimental combined taps", "650 ms", "Wearable shake is unavailable", "Included in 0.4.11"):
+        for phrase in ("experimental combined taps", "650 ms", "Wearable shake is unavailable", "Included in 0.4.13"):
             self.assertIn(phrase, html)
-    def test_source_profiles_and_gesture_windows(self):
+    def test_download_profiles_and_gesture_windows(self):
         for document in (self.text, self.readme):
             for phrase in ("Everyday", "Meeting", "Music", "manually", "Single press", "Double press", "Triple press", "Four presses", "Five presses", "650 ms", "950 ms", "1250 ms", "Four/five start with No action", "fixed", "Shorter gestures wait", "shortcut targets", "No arbitrary macros"):
                 self.assertTrue(phrase in document, "Missing profile/gesture contract: " + phrase)
         self.assertTrue("Switching profiles cancels pending gestures" in self.text)
-        self.assertTrue("New in source 0.4.12" in self.text)
-    def test_source_smart_pause_record_and_flashlight(self):
+        self.assertTrue("Included in 0.4.13" in self.text)
+    def test_download_smart_pause_record_and_flashlight(self):
         for document in (self.text, self.readme):
             for phrase in ("Smart: bookmark recording / play-pause idle", "controls-only standby", "Pause music → start recording", "never stops an existing recording", "Flashlight toggle", "CameraManager", "Allow flashlight permission", "does not grant permission", "locked-screen", "physical acceptance"):
                 self.assertTrue(phrase in document, "Missing action/acceptance contract: " + phrase)
         privacy = self.html.split('id="privacy"', 1)[1].split('</section>', 1)[0]
-        self.assertTrue("Camera · source 0.4.12 only" in privacy)
-    def test_source_only_labels_are_wrappable(self):
-        # Keep the disclaimer outside the no-wrap tag, including at 320px.
-        marker = '<span class="tag new">New in source 0.4.12</span> Not in the APK download.'
+        self.assertTrue("Camera · optional flashlight" in privacy)
+    def test_previously_source_only_controls_are_in_download(self):
         for section in ("controls", "notifications"):
             content = self.html.split('id="' + section + '"', 1)[1].split('</section>', 1)[0]
-            self.assertTrue(marker in content, "Missing source-only label: " + section)
-    def test_source_notification_selection_and_patterns(self):
+            self.assertIn("Included in 0.4.13", content)
+            self.assertNotIn("source-only", content)
+            self.assertNotIn("Not in the APK download", content)
+    def test_download_notification_selection_and_patterns(self):
         for document in (self.text, self.readme):
             for phrase in ("All apps", "Selected apps only", "empty selected-app list", "no notification pulses", "Short pulse", "Double pulse", "Triple pulse", "Long pulse", "per-app", "opt-in", "phone-motor substitution"):
                 self.assertTrue(phrase in document, "Missing notification contract: " + phrase)
@@ -116,21 +119,32 @@ class SiteTests(unittest.TestCase):
             self.assertTrue(phrase in self.text, "Missing notification guide detail: " + phrase)
     def test_retained_evidence_not_physical_certification(self):
         for document in (self.text, self.readme):
-            for phrase in ("125 Android instrumentation tests", "54 gesture scenarios", "641 haptic/BLE scenarios", "overlap", "pending"):
+            for phrase in ("112 targeted signed-emulator tests", "11-test", "non-additive", "not a full-suite", "not freshly rerun", "0.4.12 → 0.4.13", "USB", "exact APK bytes", "identity", "permissions", "No recording was started", "Historical 0.4.12", "125 Android instrumentation tests", "54 gesture scenarios", "641 haptic/BLE scenarios", "overlap", "pending"):
                 self.assertTrue(phrase in document, "Missing evidence boundary: " + phrase)
     def test_library_browsing_controls(self):
         for phrase in ("Today", "All dates", "12 per page", "Refresh saved recordings", "case-insensitive substring", "without a plaintext playback cache"):
             self.assertIn(phrase, self.html)
     def test_notification_filters_and_manual_test(self):
-        for phrase in ("Test double pulse on Omi", "Do Not Disturb", "1.5 seconds", "manual test does not itself check DND", "off by default", "existing connection"):
-            self.assertIn(phrase, self.html)
+        guide = unescape(re.sub(r'<[^>]+>', '', self.html.split('id="notifications"', 1)[1].split('</section>', 1)[0]))
+        for document in (guide, self.readme):
+            for phrase in ("Notification filter", "All notifications", "Alerting only", "default when no filter preference is saved", "separate from", "All apps", "Selected apps only", "silent/low-importance", "grouped", "ongoing", "foreground-service", "DND-delivered", "ONLY_ALERT_ONCE", "not a blanket exclusion", "Do Not Disturb", "even during DND", "restrictive filtering", "own-app", "package exclusions", "stale", "duplicate", "1.5 seconds", "reconnect fences", "manual test does not itself check DND", "off by default", "existing connection", "existing BLE owner", "no replay backlog", "phone-motor substitution", "Message text is not read", "WhatsApp", "not verified", "not guarantee a pulse"):
+                self.assertTrue(phrase in document, "Missing notification filter/safeguard contract: " + phrase)
+        for phrase in ("Test double pulse on Omi", "Test triple pulse on Omi", "selected default pattern"):
+            self.assertIn(phrase, guide)
+        self.assertNotIn("Automatic alerts are suppressed during any active", guide)
+    def test_screenshots_allowed_and_privacy_preserved(self):
+        for document in (self.text, self.readme):
+            for phrase in ("Screenshots are allowed throughout the app", "visible private content", "backups", "Keystore"):
+                self.assertTrue(phrase in document, "Missing screenshot/privacy contract: " + phrase)
+            for stale in ("screen captures protected", "screenshots are protected", "Protected screens"):
+                self.assertNotIn(stale, document)
     def test_json_ld(self):
         values = re.findall(r'<script type="application/ld\+json">(.*?)</script>', self.html, re.S)
         self.assertEqual(len(values), 1)
         data = json.loads(values[0])
         self.assertEqual(data["name"], "NotTheOmiAIApp")
-        self.assertEqual(data["softwareVersion"], "0.4.11")
-        self.assertEqual(data["downloadUrl"], "https://github.com/five0nit/NotTheOmiAIApp/releases/download/v0.4.11/NotTheOmiAIApp-0.4.11-arm64-v8a.apk")
+        self.assertEqual(data["softwareVersion"], "0.4.13")
+        self.assertEqual(data["downloadUrl"], "https://github.com/five0nit/NotTheOmiAIApp/releases/download/v0.4.13/NotTheOmiAIApp-0.4.13-arm64-v8a.apk")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

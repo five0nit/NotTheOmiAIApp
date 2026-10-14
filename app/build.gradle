@@ -8,8 +8,8 @@ android {
   applicationId 'app.nottheomi.ai'
   minSdk 26
   targetSdk 34
-  versionCode 19
-  versionName '0.4.12'
+  versionCode 20
+  versionName '0.4.13'
   testInstrumentationRunner 'android.test.InstrumentationTestRunner'
   // ABI splits alone do not filter transitive AAR libraries from universal APKs.
   ndk { abiFilters 'arm64-v8a', 'x86_64' }

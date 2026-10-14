@@ -66,7 +66,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
-        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE); playback=new LocalPlayback(this);
+        playback=new LocalPlayback(this);
         if(saved!=null){library=saved.getBoolean("library");libraryState=LibraryBrowser.State.restore(saved.getBundle("libraryState"));exportId=saved.getString("exportId");exportKind=saved.getString("exportKind");}
         draw();
         // A pause invalidates read callbacks, not the navigation saved by Android.

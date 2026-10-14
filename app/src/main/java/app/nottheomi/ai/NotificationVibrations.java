@@ -18,10 +18,12 @@ import java.util.function.BooleanSupplier;
 public final class NotificationVibrations {
     static final String ENABLED_KEY = "notification_vibrations_enabled";
     static final String MODE_KEY = "notification_vibrations_mode";
+    static final String FILTER_KEY = "notification_vibrations_filter";
     static final String PACKAGES_KEY = "notification_vibrations_packages";
     static final String DEFAULT_PATTERN_KEY = "notification_vibrations_pattern";
     static final String APP_PATTERN_PREFIX = "notification_vibrations_pattern.";
     public static final String MODE_ALL = "all", MODE_SELECTED = "selected";
+    public static final String FILTER_ALL = "all_notifications", FILTER_ALERTING = "alerting_only";
     public static final String DEFAULT_PATTERN = HapticPatterns.DEFAULT;
     private static final Object LOCK = new Object();
     private static final AtomicLong GENERATION = new AtomicLong();
@@ -61,6 +63,27 @@ public final class NotificationVibrations {
         synchronized (LOCK) {
             if (!mode.equals(mode(context))) GENERATION.incrementAndGet();
             preferences(context).edit().putString(MODE_KEY, mode).apply();
+        }
+    }
+
+    /** All delivered notification types by default; malformed policy retains restrictive filtering. */
+    public static String filter(Context context) {
+        try {
+            String value = preferences(context).getString(FILTER_KEY, FILTER_ALL);
+            return FILTER_ALL.equals(value) ? FILTER_ALL : FILTER_ALERTING;
+        } catch (ClassCastException malformed) { return FILTER_ALERTING; }
+    }
+
+    public static boolean includeAllNotifications(Context context) {
+        return FILTER_ALL.equals(filter(context));
+    }
+
+    public static void setFilter(Context context, String filter) {
+        if (!FILTER_ALL.equals(filter) && !FILTER_ALERTING.equals(filter))
+            throw new IllegalArgumentException("Unknown notification filter");
+        synchronized (LOCK) {
+            if (!filter.equals(filter(context))) GENERATION.incrementAndGet();
+            preferences(context).edit().putString(FILTER_KEY, filter).apply();
         }
     }
 
@@ -276,5 +299,8 @@ public final class NotificationVibrations {
         synchronized (LOCK) { GENERATION.incrementAndGet(); }
     }
 
-    static long configurationGeneration() { return GENERATION.get(); }
+    // Do not expose a setter's increment until its preference publication completes under LOCK.
+    static long configurationGeneration() {
+        synchronized (LOCK) { return GENERATION.get(); }
+    }
 }

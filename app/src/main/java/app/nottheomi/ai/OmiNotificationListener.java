@@ -30,6 +30,7 @@ public final class OmiNotificationListener extends NotificationListenerService {
     private EventGate events;
     private Supplier<StatusBarNotification[]> activeSnapshot;
     private BiFunction<String, RankingMap, Ranking> rankingSource;
+    private BooleanSupplier includeAllSource;
 
     public OmiNotificationListener() {}
 
@@ -42,9 +43,16 @@ public final class OmiNotificationListener extends NotificationListenerService {
     // Tests can supply synthetic platform metadata without reflection/hidden APIs or system access.
     OmiNotificationListener(EventGate events, Supplier<StatusBarNotification[]> activeSnapshot,
             BiFunction<String, RankingMap, Ranking> rankingSource) {
+        // Original synthetic seams explicitly exercise the optional legacy alerting filter.
+        this(events, activeSnapshot, rankingSource, () -> false);
+    }
+
+    OmiNotificationListener(EventGate events, Supplier<StatusBarNotification[]> activeSnapshot,
+            BiFunction<String, RankingMap, Ranking> rankingSource, BooleanSupplier includeAllSource) {
         this.events = events;
         this.activeSnapshot = activeSnapshot;
         this.rankingSource = rankingSource;
+        this.includeAllSource = includeAllSource;
     }
 
     @Override public void onListenerConnected() {
@@ -81,46 +89,59 @@ public final class OmiNotificationListener extends NotificationListenerService {
         super.onDestroy();
     }
 
-    private boolean interruptionsAllowed() {
+    boolean includeAllNotifications() {
+        return includeAllSource == null ? NotificationVibrations.includeAllNotifications(this)
+            : includeAllSource.getAsBoolean();
+    }
+
+    boolean interruptionsAllowed() {
+        if (includeAllNotifications()) return true;
         try { return allowsInterruptionFilter(getCurrentInterruptionFilter()); }
         catch (RuntimeException unavailable) { return false; }
     }
 
-    /** Conservative: do not turn a wearable into a workaround for any active DND mode. */
+    /** Alerting-only mode retains the conservative phone DND gate. */
     static boolean allowsInterruptionFilter(int filter) {
         return filter == NotificationManager.INTERRUPTION_FILTER_ALL;
     }
 
     @Override public void onInterruptionFilterChanged(int filter) {
-        if (!allowsInterruptionFilter(filter)) NotificationVibrations.invalidate();
+        if (!includeAllNotifications() && !allowsInterruptionFilter(filter)) NotificationVibrations.invalidate();
     }
 
     @Override public void onNotificationPosted(StatusBarNotification notification) {
         RankingMap rankings = null;
-        try { rankings = getCurrentRanking(); }
+        try { if (!includeAllNotifications()) rankings = getCurrentRanking(); }
         catch (RuntimeException unavailable) { /* Unknown ranking fails closed below. */ }
         onNotificationPosted(notification, rankings);
     }
 
     @Override public void onNotificationPosted(StatusBarNotification posted, RankingMap rankings) {
         if (events == null || posted == null) return;
+        final long ingressGeneration = NotificationVibrations.configurationGeneration();
         boolean alerting = false;
         boolean onlyAlertOnce = false;
         try {
             Notification notification = posted.getNotification();
-            onlyAlertOnce = notification != null
-                && (notification.flags & Notification.FLAG_ONLY_ALERT_ONCE) != 0;
-            Ranking ranking = rankingSource == null ? readRanking(posted.getKey(), rankings)
-                : rankingSource.apply(posted.getKey(), rankings);
-            if (ranking != null) {
-                alerting = alertingMetadata(notification, ranking.getChannel(),
-                    ranking.getImportance(), ranking.matchesInterruptionFilter(),
-                    ranking.getSuppressedVisualEffects(), Build.VERSION.SDK_INT >= 28 && ranking.isSuspended());
+            if (includeAllNotifications()) {
+                // Delivery, not phone sound/importance/grouping, determines eligibility. No payload reads.
+                alerting = notification != null;
+            } else {
+                onlyAlertOnce = notification != null
+                    && (notification.flags & Notification.FLAG_ONLY_ALERT_ONCE) != 0;
+                Ranking ranking = rankingSource == null ? readRanking(posted.getKey(), rankings)
+                    : rankingSource.apply(posted.getKey(), rankings);
+                if (ranking != null) {
+                    alerting = alertingMetadata(notification, ranking.getChannel(),
+                        ranking.getImportance(), ranking.matchesInterruptionFilter(),
+                        ranking.getSuppressedVisualEffects(), Build.VERSION.SDK_INT >= 28 && ranking.isSuspended());
+                }
             }
         } catch (RuntimeException unavailable) {
             // Bad/missing platform metadata must not turn into an alert. Never log the notification.
         }
-        events.posted(posted.getKey(), posted.getPackageName(), posted.getPostTime(), alerting, onlyAlertOnce);
+        events.posted(posted.getKey(), posted.getPackageName(), posted.getPostTime(), alerting, onlyAlertOnce,
+            () -> NotificationVibrations.configurationGeneration() == ingressGeneration);
     }
 
     private static Ranking readRanking(String key, RankingMap rankings) {
@@ -228,6 +249,11 @@ public final class OmiNotificationListener extends NotificationListenerService {
         }
 
         void posted(String key, String packageName, long postTime, boolean alerting, boolean onlyAlertOnce) {
+            posted(key, packageName, postTime, alerting, onlyAlertOnce, () -> true);
+        }
+
+        void posted(String key, String packageName, long postTime, boolean alerting, boolean onlyAlertOnce,
+                BooleanSupplier ingressGuard) {
             BooleanSupplier guard;
             String pattern;
             synchronized (this) {
@@ -261,7 +287,7 @@ public final class OmiNotificationListener extends NotificationListenerService {
                 guard = () -> {
                     synchronized (EventGate.this) {
                         return connected && !saturated && epoch == eventEpoch && seen.get(fingerprint) == eventIdentity
-                            && configGuard.getAsBoolean() && interruptionsAllowed.getAsBoolean();
+                            && ingressGuard.getAsBoolean() && configGuard.getAsBoolean() && interruptionsAllowed.getAsBoolean();
                     }
                 };
                 if (!guard.getAsBoolean()) return;

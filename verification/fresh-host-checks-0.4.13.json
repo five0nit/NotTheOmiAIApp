@@ -1,0 +1,17 @@
+{
+  "scope": "fresh host checks on exact public checkout; controlled doubles, not hardware acceptance",
+  "results": [
+    {
+      "command": "python3 tests/omi/run_ble_tests.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 tests/omi-capture/run_host_checks.py",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 tests/omi-composition/run_host_checks.py",
+      "exit_code": 0
+    }
+  ]
+}
